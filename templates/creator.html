@@ -1,170 +1,100 @@
-{{!-- ====================================================================
-  Consumable Creator — Handlebars Template
-  ====================================================================
+{{!-- ApplicationV2 template: tag:"form" is set on the app, so no <form> tag here --}}
+<section class="ce-creator">
 
-  This template renders inside the ConsumableCreatorApp FormApplication.
-  It is loaded from  templates/creator.html  via the defaultOptions.template
-  path declared in module.js.
-
-  Template context (provided by ConsumableCreatorApp.getData()):
-    • parsed  — the result of parseNaturalLanguage(), or null before Generate
-    • i18n    — helper function: i18n("key") → game.i18n.localize("CONSUMABLE_EFFECTS.key")
-
-  Custom Handlebars helpers (registered in module.js init hook):
-    • isOffset label — returns true if the label starts with "("
-      Used to hide calculationBonusModifier entries from the preview.
-    • modeLabel mode — converts numeric ACTIVE_EFFECT_MODES to a word
-      e.g. 2 → "Add", 5 → "Override"
-
-  CSS classes are all prefixed "ce-" and defined in styles/module.css.
-==================================================================== --}}
-
-<form class="ce-form" autocomplete="off">
-
-  {{!-- ────────────────────────────────────────────────────────────────
-    SECTION 1: Item Identity
-    Name and trapping type on one row; they define what kind of item
-    gets created in the WFRP4e system (type:"trapping", trappingType:"foodAndDrink" etc.)
-    Values are preserved across re-renders via the {{form}} context object.
-  ──────────────────────────────────────────────────────────────────── --}}
-  <div class="ce-form-row">
-    <div class="ce-form-group" style="flex: 2">
-      <label for="itemName">{{ i18n "itemName" }}</label>
-      <input type="text" name="itemName" placeholder="Hearty Stew" value="{{form.itemName}}" autofocus />
-    </div>
-    <div class="ce-form-group" style="flex: 1">
-      <label for="trappingType">{{ i18n "trappingType" }}</label>
-      <select name="trappingType">
-        <option value="foodAndDrink" {{#if (eq form.trappingType "foodAndDrink")}}selected{{/if}}>{{ i18n "foodAndDrink" }}</option>
-        <option value="drugOrPoison" {{#if (eq form.trappingType "drugOrPoison")}}selected{{/if}}>{{ i18n "drugPoison" }}</option>
-        <option value="herbOrDraught" {{#if (eq form.trappingType "herbOrDraught")}}selected{{/if}}>{{ i18n "herbDraught" }}</option>
-      </select>
-    </div>
+  {{!-- Item Identity --}}
+  <div class="form-group">
+    <label>Item Name</label>
+    <input type="text" name="itemName" value="{{form.itemName}}" placeholder="Hearty Stew" autofocus />
   </div>
 
-  {{!-- ────────────────────────────────────────────────────────────────
-    SECTION 2: Item Description
-    Free-text flavour description.  Stored in system.description.value
-    on the created Item and displayed in the chat card on consume.
-  ──────────────────────────────────────────────────────────────────── --}}
-  <div class="ce-form-group">
-    <label for="itemDescription">{{ i18n "itemDescription" }}</label>
+  <div class="form-group">
+    <label>Trapping Type</label>
+    <select name="trappingType">
+      <option value="foodAndDrink" {{#if (eq form.trappingType "foodAndDrink")}}selected{{/if}}>Food & Drink</option>
+      <option value="drugOrPoison" {{#if (eq form.trappingType "drugOrPoison")}}selected{{/if}}>Drug/Poison</option>
+      <option value="herbOrDraught" {{#if (eq form.trappingType "herbOrDraught")}}selected{{/if}}>Herb/Draught</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label>Description</label>
     <textarea name="itemDescription" placeholder="A rich, warming stew favoured by Reiklanders...">{{form.itemDescription}}</textarea>
   </div>
 
-  {{!-- ────────────────────────────────────────────────────────────────
-    SECTION 3: Quantity & Encumbrance
-    Stored in system.quantity.value and system.encumbrance.value on the
-    WFRP4e trapping Item.  Quantity is decremented each time the item
-    is consumed.
-  ──────────────────────────────────────────────────────────────────── --}}
-  <div class="ce-form-row">
-    <div class="ce-form-group">
-      <label for="quantity">{{ i18n "quantity" }}</label>
+  <div class="form-group-row">
+    <div class="form-group">
+      <label>Quantity</label>
       <input type="number" name="quantity" value="{{form.quantity}}" min="1" step="1" />
     </div>
-    <div class="ce-form-group">
-      <label for="encumbrance">{{ i18n "encumbrance" }}</label>
+    <div class="form-group">
+      <label>Encumbrance</label>
       <input type="number" name="encumbrance" value="{{form.encumbrance}}" min="0" step="0.1" />
     </div>
   </div>
 
-  {{!-- ────────────────────────────────────────────────────────────────
-    SECTION 4: Natural Language Effect Builder
-    The core feature of the module.  The GM types a plain-English
-    description of the effect (e.g. "+10 Toughness for 5 rounds").
-    Clicking "Generate" runs parseNaturalLanguage() in module.js,
-    stores the result on the app instance, and re-renders the form
-    to populate the preview panel below.
-  ──────────────────────────────────────────────────────────────────── --}}
-  <div class="ce-nl-section">
-    <h3><i class="fas fa-magic"></i> {{ i18n "effectDescription" }}</h3>
+  {{!-- Natural Language Effect Builder --}}
+  <fieldset class="ce-nl-section">
+    <legend><i class="fas fa-magic"></i> Describe the Effect</legend>
 
-    <div class="ce-nl-input-row">
-      <div class="ce-form-group">
-        <textarea name="effectDescription" rows="2"
-          placeholder='{{i18n "effectPlaceholder"}}'>{{form.effectDescription}}</textarea>
-      </div>
+    <div class="form-group">
+      <textarea name="effectDescription" rows="2" placeholder='e.g. "+10 Toughness and remove fatigued for 5 rounds"'>{{form.effectDescription}}</textarea>
     </div>
 
-    <div style="margin-top: 6px; text-align: right;">
-      <button type="button" class="ce-generate-btn">
-        <i class="fas fa-bolt"></i> {{ i18n "generate" }}
+    <div class="ce-nl-actions">
+      <button type="button" data-action="generate">
+        <i class="fas fa-bolt"></i> Generate
       </button>
     </div>
-  </div>
+  </fieldset>
 
-  {{!-- ────────────────────────────────────────────────────────────────
-    SECTION 5: Effect Preview
-    Only rendered after the GM clicks Generate (i.e. when "parsed" is
-    not null).  Shows:
-      • Each parsed change as a list item (offset entries hidden via isOffset)
-      • Heal amount (if any)
-      • Duration in rounds (if any)
-      • An error message if nothing could be parsed
-    Before Generate is clicked, a placeholder message is shown.
-  ──────────────────────────────────────────────────────────────────── --}}
-  <div class="ce-preview">
-    <h4><i class="fas fa-eye"></i> {{ i18n "preview" }}</h4>
+  {{!-- Effect Preview --}}
+  <fieldset class="ce-preview">
+    <legend><i class="fas fa-eye"></i> Preview</legend>
 
     {{#if parsed}}
-      {{!-- Stat/movement changes --}}
       {{#if parsed.changes.length}}
         <ul class="ce-preview-list">
           {{#each parsed.changes}}
-            {{!-- Hide calculationBonusModifier offsets (labels starting with "(") --}}
             {{#unless (isOffset this.label)}}
-              <li>
-                <span class="ce-key">{{this.label}}</span>
-                <span class="ce-mode">({{modeLabel this.mode}})</span>
-              </li>
+              <li><strong>{{this.label}}</strong> <em>(Add)</em></li>
             {{/unless}}
           {{/each}}
         </ul>
       {{/if}}
 
-      {{!-- Healing --}}
+      {{#if parsed.conditions.length}}
+        <ul class="ce-preview-list">
+          {{#each parsed.conditions}}
+            <li class="ce-condition-{{this.action}}"><strong>{{this.label}}</strong></li>
+          {{/each}}
+        </ul>
+      {{/if}}
+
       {{#if parsed.heal}}
-        <p class="ce-preview-heal">
-          <i class="fas fa-heart"></i> Heal {{parsed.heal}} Wounds
-        </p>
+        <p class="ce-preview-heal"><i class="fas fa-heart"></i> Heal {{parsed.heal}} Wounds</p>
       {{/if}}
 
-      {{!-- Duration --}}
       {{#if parsed.duration}}
-        <p class="ce-preview-duration">
-          <i class="fas fa-clock"></i> Duration: {{parsed.duration}} rounds
-        </p>
+        <p class="ce-preview-duration"><i class="fas fa-clock"></i> Duration: {{parsed.duration}} rounds</p>
       {{/if}}
 
-      {{!-- Error: nothing was parsed --}}
       {{#unless parsed.changes.length}}
         {{#unless parsed.heal}}
-          <p class="ce-parse-error">
-            <i class="fas fa-exclamation-triangle"></i> {{ i18n "parseError" }}
-          </p>
+          {{#unless parsed.conditions.length}}
+            <p class="ce-parse-error"><i class="fas fa-exclamation-triangle"></i> Could not parse. Try rephrasing.</p>
+          {{/unless}}
         {{/unless}}
       {{/unless}}
-
     {{else}}
-      {{!-- No parse result yet — show placeholder --}}
       <p class="ce-preview-empty">Describe an effect above and click Generate to preview it.</p>
     {{/if}}
-  </div>
+  </fieldset>
 
-  {{!-- ────────────────────────────────────────────────────────────────
-    SECTION 6: Footer Buttons
-    Cancel closes the dialog.  Save calls _createItem() to persist the
-    Item + ActiveEffect to the world.  Save is disabled until Generate
-    has run (the "parsed" context variable is falsy before that).
-  ──────────────────────────────────────────────────────────────────── --}}
-  <div class="ce-footer">
-    <button type="button" class="ce-cancel-btn">
-      <i class="fas fa-times"></i> {{ i18n "cancel" }}
+  {{!-- Footer Actions --}}
+  <footer class="ce-footer">
+    <button type="button" data-action="saveItem" {{#unless parsed}}disabled{{/unless}}>
+      <i class="fas fa-save"></i> Save Item
     </button>
-    <button type="button" class="ce-save-btn" {{#unless parsed}}disabled{{/unless}}>
-      <i class="fas fa-save"></i> {{ i18n "save" }}
-    </button>
-  </div>
+  </footer>
 
-</form>
+</section>
