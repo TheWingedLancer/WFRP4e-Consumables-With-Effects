@@ -25,18 +25,19 @@
     SECTION 1: Item Identity
     Name and trapping type on one row; they define what kind of item
     gets created in the WFRP4e system (type:"trapping", trappingType:"foodAndDrink" etc.)
+    Values are preserved across re-renders via the {{form}} context object.
   ──────────────────────────────────────────────────────────────────── --}}
   <div class="ce-form-row">
     <div class="ce-form-group" style="flex: 2">
       <label for="itemName">{{ i18n "itemName" }}</label>
-      <input type="text" name="itemName" placeholder="Hearty Stew" value="" autofocus />
+      <input type="text" name="itemName" placeholder="Hearty Stew" value="{{form.itemName}}" autofocus />
     </div>
     <div class="ce-form-group" style="flex: 1">
       <label for="trappingType">{{ i18n "trappingType" }}</label>
       <select name="trappingType">
-        <option value="foodAndDrink" selected>{{ i18n "foodAndDrink" }}</option>
-        <option value="drugOrPoison">{{ i18n "drugPoison" }}</option>
-        <option value="herbOrDraught">{{ i18n "herbDraught" }}</option>
+        <option value="foodAndDrink" {{#if (eq form.trappingType "foodAndDrink")}}selected{{/if}}>{{ i18n "foodAndDrink" }}</option>
+        <option value="drugOrPoison" {{#if (eq form.trappingType "drugOrPoison")}}selected{{/if}}>{{ i18n "drugPoison" }}</option>
+        <option value="herbOrDraught" {{#if (eq form.trappingType "herbOrDraught")}}selected{{/if}}>{{ i18n "herbDraught" }}</option>
       </select>
     </div>
   </div>
@@ -48,7 +49,7 @@
   ──────────────────────────────────────────────────────────────────── --}}
   <div class="ce-form-group">
     <label for="itemDescription">{{ i18n "itemDescription" }}</label>
-    <textarea name="itemDescription" placeholder="A rich, warming stew favoured by Reiklanders..."></textarea>
+    <textarea name="itemDescription" placeholder="A rich, warming stew favoured by Reiklanders...">{{form.itemDescription}}</textarea>
   </div>
 
   {{!-- ────────────────────────────────────────────────────────────────
@@ -60,11 +61,11 @@
   <div class="ce-form-row">
     <div class="ce-form-group">
       <label for="quantity">{{ i18n "quantity" }}</label>
-      <input type="number" name="quantity" value="1" min="1" step="1" />
+      <input type="number" name="quantity" value="{{form.quantity}}" min="1" step="1" />
     </div>
     <div class="ce-form-group">
       <label for="encumbrance">{{ i18n "encumbrance" }}</label>
-      <input type="number" name="encumbrance" value="0.5" min="0" step="0.1" />
+      <input type="number" name="encumbrance" value="{{form.encumbrance}}" min="0" step="0.1" />
     </div>
   </div>
 
@@ -82,7 +83,7 @@
     <div class="ce-nl-input-row">
       <div class="ce-form-group">
         <textarea name="effectDescription" rows="2"
-          placeholder='{{i18n "effectPlaceholder"}}'></textarea>
+          placeholder='{{i18n "effectPlaceholder"}}'>{{form.effectDescription}}</textarea>
       </div>
     </div>
 

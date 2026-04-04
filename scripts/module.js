@@ -350,6 +350,21 @@ class ConsumableCreatorApp extends FormApplication {
      * @type {object|null}
      */
     this._parsedEffect = null;
+
+    /**
+     * Preserved form field values.  When the user clicks "Generate" the form
+     * re-renders (to show the preview), which would wipe all inputs.  We
+     * snapshot them here before re-rendering and feed them back via getData().
+     * @type {object}
+     */
+    this._formState = {
+      itemName: "",
+      itemDescription: "",
+      quantity: "1",
+      encumbrance: "0.5",
+      trappingType: "foodAndDrink",
+      effectDescription: "",
+    };
   }
 
   /* ---------- defaultOptions ----------
@@ -376,26 +391,26 @@ class ConsumableCreatorApp extends FormApplication {
   /* ---------- getData ----------
    * Called by FoundryVTT before each render.  The returned object becomes
    * the Handlebars template context.  We pass:
-   *   • parsed — the most recent parse result (or null)
-   *   • i18n   — a shortcut helper to localise strings inside the template
+   *   • parsed   — the most recent parse result (or null)
+   *   • form     — preserved form field values (survive re-renders)
+   *   • i18n     — a shortcut helper to localise strings inside the template
    */
   /** @override */
   getData() {
     return {
       parsed: this._parsedEffect,
+      form:   this._formState,
       i18n:   (key) => game.i18n.localize(`CONSUMABLE_EFFECTS.${key}`),
     };
   }
 
   /* ---------- activateListeners ----------
    * Called after each render.  We bind click handlers to our three buttons:
-   *   • Generate — parses the natural-language textarea and re-renders
-   *   • Save    — calls _createItem() to persist the item + effect
+   *   • Generate — snapshots form values, parses NL text, then re-renders
+   *   • Save    — calls _createItem() reading from the *current* live DOM
    *   • Cancel  — closes the dialog
    *
-   * V13 COMPATIBILITY: FormApplication (V1) still passes jQuery in V13,
-   * but we use a helper _q() to safely handle both jQuery and HTMLElement
-   * so the code is forward-compatible for eventual migration to ApplicationV2.
+   * V13 COMPATIBILITY: Uses native DOM methods throughout.
    */
   /** @override */
   activateListeners(html) {
@@ -404,19 +419,25 @@ class ConsumableCreatorApp extends FormApplication {
     // Normalise: get the raw HTMLElement regardless of jQuery or native
     const el = html instanceof HTMLElement ? html : html[0] ?? html;
 
-    // "Generate" button — run the parser and re-render to show preview
+    // "Generate" button — snapshot form state, parse, and re-render
     el.querySelector(".ce-generate-btn")?.addEventListener("click", (ev) => {
       ev.preventDefault();
-      const desc = el.querySelector("[name='effectDescription']")?.value;
+      // Snapshot all form values BEFORE re-render wipes the DOM
+      this._snapshotFormState(el);
+      const desc = this._formState.effectDescription;
       if (!desc) return;
       this._parsedEffect = parseNaturalLanguage(desc);
-      this.render(false); // false = don't reset scroll position
+      this.render(false); // Re-renders template; getData() feeds _formState back in
     });
 
-    // "Save Item" button — persist the item to the world
+    // "Save Item" button — read from the LIVE DOM (not the stale closure `el`)
     el.querySelector(".ce-save-btn")?.addEventListener("click", async (ev) => {
       ev.preventDefault();
-      await this._createItem(el);
+      // Get the current live form element from Foundry's element reference
+      const liveEl = this.element instanceof HTMLElement
+        ? this.element
+        : this.element?.[0] ?? el;
+      await this._createItem(liveEl);
     });
 
     // "Cancel" button — close without saving
@@ -424,6 +445,20 @@ class ConsumableCreatorApp extends FormApplication {
       ev.preventDefault();
       this.close();
     });
+  }
+
+  /**
+   * Read all form field values from the DOM and store them in _formState
+   * so they survive the re-render triggered by "Generate".
+   * @param {HTMLElement} el — the form's root element
+   */
+  _snapshotFormState(el) {
+    this._formState.itemName         = el.querySelector("[name='itemName']")?.value ?? "";
+    this._formState.itemDescription  = el.querySelector("[name='itemDescription']")?.value ?? "";
+    this._formState.quantity         = el.querySelector("[name='quantity']")?.value ?? "1";
+    this._formState.encumbrance      = el.querySelector("[name='encumbrance']")?.value ?? "0.5";
+    this._formState.trappingType     = el.querySelector("[name='trappingType']")?.value ?? "foodAndDrink";
+    this._formState.effectDescription = el.querySelector("[name='effectDescription']")?.value ?? "";
   }
 
   /* ---------- _createItem ----------
@@ -722,6 +757,11 @@ Hooks.once("init", () => {
     return mode === 2 ? "Add" : mode === 5 ? "Override" : `Mode ${mode}`;
   });
 
+  // "eq" compares two values — used for preserving <select> state across re-renders.
+  Handlebars.registerHelper("eq", function (a, b) {
+    return a === b;
+  });
+
   // ---- Module settings ----
   // A single boolean: whether to show the "Create Consumable" button in the
   // Items Directory sidebar header.  Stored per-world (scope: "world").
@@ -791,10 +831,13 @@ Hooks.on("renderItemDirectory", (app, html, data) => {
   const element = html instanceof HTMLElement ? html : html[0];
   if (!element) return;
 
-  // Build the button using native DOM — no jQuery dependency
+  // Build the button using native DOM — no jQuery dependency.
+  // We do NOT apply our custom "ce-use-button" class here; instead we leave
+  // the button unstyled so it inherits Foundry V13's native sidebar button
+  // appearance (same look as "Create Item", "Create Folder", etc.).
   const button = document.createElement("button");
-  button.classList.add("ce-use-button");
-  button.style.margin = "4px";
+  button.type = "button";
+  button.dataset.action = "ce-create-consumable"; // For identification only
   button.innerHTML = `<i class="fas fa-utensils"></i> ${game.i18n.localize("CONSUMABLE_EFFECTS.createItem")}`;
   button.addEventListener("click", (ev) => {
     ev.preventDefault();
