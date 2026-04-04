@@ -633,23 +633,32 @@ Hooks.on("renderItemDirectory", (app, html, data) => {
 });
 
 // ---- Actor Sheet: inject consume button on consumable inventory items ----
-// WFRP4e uses DIV.list-row[data-uuid] for inventory items.
-// We resolve each UUID to check for our isConsumable flag.
-Hooks.on("renderActorSheet", async (app, html, data) => {
-  const actor = app.document ?? app.object;
+// WFRP4e V13 uses ApplicationV2 actor sheets which fire "renderActorSheetV2"
+// and "renderActorSheetWFRP4eCharacter" — NOT "renderActorSheet".
+// We hook into multiple names so it works on both V12 and V13.
+
+/**
+ * Shared handler: scans the actor sheet DOM for WFRP4e inventory rows
+ * (div.list-row[data-uuid]) and injects a consume button on any that
+ * are our consumable items.
+ */
+async function _injectConsumeButtons(app, html, data) {
+  const actor = app.document ?? app.object ?? app.actor;
   if (!actor) return;
 
-  const element = html instanceof HTMLElement ? html : html[0];
+  // V13 ApplicationV2 passes the element directly; V12 may pass jQuery
+  const element = html instanceof HTMLElement ? html
+    : (app.element instanceof HTMLElement ? app.element : html?.[0]);
   if (!element) return;
 
-  // Find all list-row elements with a data-uuid attribute (WFRP4e inventory items)
+  // Find all WFRP4e inventory rows
   const rows = element.querySelectorAll("div.list-row[data-uuid]");
 
   for (const row of rows) {
     const uuid = row.dataset.uuid;
     if (!uuid) continue;
 
-    // Resolve the UUID to get the actual Item document
+    // Resolve UUID to the Item document
     let item;
     try { item = await fromUuid(uuid); } catch { continue; }
     if (!item?.flags?.[MODULE_ID]?.isConsumable) continue;
@@ -657,7 +666,7 @@ Hooks.on("renderActorSheet", async (app, html, data) => {
     // Don't add duplicate buttons
     if (row.querySelector("[data-action='ce-consume']")) continue;
 
-    // Create consume button icon
+    // Create consume button
     const btn = document.createElement("a");
     btn.dataset.action = "ce-consume";
     btn.title = game.i18n.localize("CONSUMABLE_EFFECTS.consume");
@@ -671,17 +680,26 @@ Hooks.on("renderActorSheet", async (app, html, data) => {
       app.render(false);
     });
 
-    // Append to the row — WFRP4e list-rows are flex containers
     row.appendChild(btn);
   }
-});
+}
+
+// V13 ApplicationV2 hooks (WFRP4e-specific and generic)
+Hooks.on("renderActorSheetWFRP4eCharacter", _injectConsumeButtons);
+Hooks.on("renderActorSheetWFRP4eNPC", _injectConsumeButtons);
+Hooks.on("renderActorSheetWFRP4eCreature", _injectConsumeButtons);
+Hooks.on("renderActorSheetV2", _injectConsumeButtons);
+// V12 fallback
+Hooks.on("renderActorSheet", _injectConsumeButtons);
 
 // ---- Item Sheet: inject consume button on consumable item sheets ----
-Hooks.on("renderItemSheet", (app, html, data) => {
+// V13 fires renderItemSheetWFRP4e / renderDocumentSheetV2, not renderItemSheet
+function _injectItemSheetConsumeButton(app, html, data) {
   const item = app.document ?? app.object;
   if (!item?.flags?.[MODULE_ID]?.isConsumable) return;
 
-  const element = html instanceof HTMLElement ? html : html[0];
+  const element = html instanceof HTMLElement ? html
+    : (app.element instanceof HTMLElement ? app.element : html?.[0]);
   if (!element) return;
   if (element.querySelector("[data-action='ce-consume']")) return;
 
@@ -706,4 +724,9 @@ Hooks.on("renderItemSheet", (app, html, data) => {
               || element.querySelector(".window-header")
               || element.querySelector("header");
   if (target) target.prepend(btn);
-});
+}
+
+// Register for all possible item sheet hook names across V12/V13
+Hooks.on("renderItemSheet", _injectItemSheetConsumeButton);
+Hooks.on("renderItemSheetV2", _injectItemSheetConsumeButton);
+Hooks.on("renderDocumentSheetV2", _injectItemSheetConsumeButton);
