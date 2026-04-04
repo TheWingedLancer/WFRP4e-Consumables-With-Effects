@@ -1,0 +1,368 @@
+/* ============================================================================
+ * WFRP4e Consumable Effects — Module Stylesheet
+ * ============================================================================
+ *
+ * Styling for the Consumable Creator FormApplication dialog and the chat
+ * cards posted when a character consumes an item.
+ *
+ * Naming convention:   all classes prefixed with "ce-" to avoid collisions
+ * with Foundry core or other module styles.
+ *
+ * Colour palette mirrors the WFRP4e system aesthetic:
+ *   Parchment background  #f5f0e6
+ *   Dark leather text     #4a3728
+ *   Blood red accent      #8b1a1a
+ *   Forest green (heal)   #3a6f3a
+ *   Tan borders           #b5a68c
+ * ============================================================================ */
+
+
+/* ---------------------------------------------------------------------------
+ * APPLICATION WINDOW
+ * The outer container for our FormApplication dialog.
+ * --------------------------------------------------------------------------- */
+.consumable-effects-app {
+  min-width: 520px;
+}
+
+/* Parchment-toned background inside the window content area */
+.consumable-effects-app .window-content {
+  padding: 8px 12px;
+  background: #f5f0e6;
+  font-family: 'Modesto Condensed', 'Palatino Linotype', serif;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * FORM LAYOUT
+ * The creator form is a vertical flex column of form groups.
+ * Each group is a label + input pair stacked vertically.
+ * .ce-form-row creates a horizontal row of groups (e.g. quantity + encumbrance).
+ * --------------------------------------------------------------------------- */
+.ce-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ce-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Labels: small-caps leather brown, matching the WFRP4e parchment style */
+.ce-form-group label {
+  font-weight: bold;
+  font-size: 0.85rem;
+  color: #4a3728;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* All form inputs share the same warm parchment styling */
+.ce-form-group input[type="text"],
+.ce-form-group input[type="number"],
+.ce-form-group textarea,
+.ce-form-group select {
+  border: 1px solid #b5a68c;
+  border-radius: 3px;
+  padding: 5px 8px;
+  background: #fffdf7;
+  font-family: 'Signika', sans-serif;
+  font-size: 0.9rem;
+  color: #1a1a1a;
+}
+
+.ce-form-group textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+/* Focus state: blood-red highlight matching the WFRP4e accent */
+.ce-form-group input:focus,
+.ce-form-group textarea:focus,
+.ce-form-group select:focus {
+  outline: none;
+  border-color: #8b1a1a;
+  box-shadow: 0 0 3px rgba(139, 26, 26, 0.3);
+}
+
+/* Horizontal row container for side-by-side form groups */
+.ce-form-row {
+  display: flex;
+  gap: 10px;
+}
+
+.ce-form-row .ce-form-group {
+  flex: 1;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * NATURAL LANGUAGE SECTION
+ * The highlighted area where the GM types the effect description and clicks
+ * "Generate".  Visually offset from the rest of the form with a darker
+ * parchment background and a subtle border.
+ * --------------------------------------------------------------------------- */
+.ce-nl-section {
+  background: #ece4d4;
+  border: 1px solid #b5a68c;
+  border-radius: 4px;
+  padding: 10px;
+  margin: 4px 0;
+}
+
+/* Section heading in blood-red with a bottom rule */
+.ce-nl-section h3 {
+  margin: 0 0 6px 0;
+  font-size: 0.95rem;
+  color: #8b1a1a;
+  border-bottom: 1px solid #c9b99a;
+  padding-bottom: 4px;
+}
+
+/* Row holding the textarea and (potentially) a side button */
+.ce-nl-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.ce-nl-input-row .ce-form-group {
+  flex: 1;
+}
+
+.ce-nl-input-row button {
+  flex-shrink: 0;
+  height: 32px;
+  align-self: flex-end;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * GENERATE BUTTON
+ * The "⚡ Generate" button that triggers NL parsing.  Blood-red to stand out
+ * as the primary action in the NL section.
+ * --------------------------------------------------------------------------- */
+button.ce-generate-btn {
+  background: #8b1a1a;
+  color: #f5f0e6;
+  border: 1px solid #5c1010;
+  border-radius: 3px;
+  padding: 4px 14px;
+  font-weight: bold;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: background 0.15s;
+  line-height: 1.5;
+}
+
+button.ce-generate-btn:hover {
+  background: #a82020;
+}
+
+button.ce-generate-btn:active {
+  background: #6b1010;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * EFFECT PREVIEW PANEL
+ * Displays the parsed result after the GM clicks Generate.
+ * Shows each change as a list item, plus optional heal amount and duration.
+ * --------------------------------------------------------------------------- */
+.ce-preview {
+  background: #fffdf7;
+  border: 1px solid #b5a68c;
+  border-radius: 4px;
+  padding: 10px;
+  min-height: 50px;
+}
+
+.ce-preview h4 {
+  margin: 0 0 6px 0;
+  font-size: 0.85rem;
+  color: #4a3728;
+  text-transform: uppercase;
+}
+
+/* Placeholder text shown before anything has been generated */
+.ce-preview-empty {
+  color: #999;
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+/* The list of parsed changes (each stat modifier is one <li>) */
+.ce-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ce-preview-list li {
+  padding: 3px 0;
+  font-size: 0.85rem;
+  color: #1a1a1a;
+  border-bottom: 1px dotted #d9d0c0;
+}
+
+.ce-preview-list li:last-child {
+  border-bottom: none;
+}
+
+/* Key = the label like "+10 Toughness" — blood-red for emphasis */
+.ce-preview-list .ce-key {
+  font-weight: bold;
+  color: #8b1a1a;
+}
+
+/* Mode = "(Add)" — subtle grey italic */
+.ce-preview-list .ce-mode {
+  color: #555;
+  font-style: italic;
+}
+
+.ce-preview-list .ce-value {
+  font-weight: bold;
+}
+
+/* Heal line shown in green */
+.ce-preview-heal {
+  padding: 3px 0;
+  font-size: 0.85rem;
+  color: #2a7a2a;
+  font-weight: bold;
+}
+
+/* Duration line at the bottom with a top separator */
+.ce-preview-duration {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid #d9d0c0;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * FOOTER BUTTONS
+ * Save (green) and Cancel (grey) at the bottom of the form.
+ * --------------------------------------------------------------------------- */
+.ce-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid #c9b99a;
+}
+
+.ce-footer button {
+  padding: 5px 18px;
+  border-radius: 3px;
+  font-weight: bold;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+button.ce-save-btn {
+  background: #3a6f3a;
+  color: white;
+  border: 1px solid #2a5a2a;
+}
+
+button.ce-save-btn:hover {
+  background: #4a8a4a;
+}
+
+button.ce-cancel-btn {
+  background: #ddd;
+  color: #333;
+  border: 1px solid #bbb;
+}
+
+button.ce-cancel-btn:hover {
+  background: #ccc;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * "CONSUME" BUTTON (used on Item sheets and in the Items Directory header)
+ * Blood-red to match the WFRP4e accent and clearly indicate a module action.
+ * --------------------------------------------------------------------------- */
+.ce-use-button {
+  background: #8b1a1a;
+  color: #f5f0e6;
+  border: 1px solid #5c1010;
+  border-radius: 3px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.ce-use-button:hover {
+  background: #a82020;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * CHAT MESSAGE CARD
+ * Styled card posted to chat when a character consumes an item.
+ * Parchment background with the actor name, effect summary, and description.
+ * --------------------------------------------------------------------------- */
+.ce-chat-card {
+  background: #f5f0e6;
+  border: 1px solid #b5a68c;
+  border-radius: 4px;
+  padding: 8px;
+  font-family: 'Signika', sans-serif;
+}
+
+/* Actor name + item name heading */
+.ce-chat-card h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  color: #8b1a1a;
+}
+
+.ce-chat-card p {
+  margin: 2px 0;
+  font-size: 0.85rem;
+}
+
+/* Effect summary line in green */
+.ce-chat-effect {
+  color: #3a6f3a;
+  font-weight: bold;
+}
+
+/* Heal summary line in darker green */
+.ce-chat-heal {
+  color: #2a7a2a;
+  font-weight: bold;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * PARSER FEEDBACK MESSAGES
+ * Shown in the preview panel when parsing succeeds or fails.
+ * --------------------------------------------------------------------------- */
+.ce-parse-error {
+  color: #a82020;
+  font-weight: bold;
+  font-size: 0.85rem;
+  padding: 4px 0;
+}
+
+.ce-parse-success {
+  color: #3a6f3a;
+  font-weight: bold;
+  font-size: 0.85rem;
+  padding: 4px 0;
+}
