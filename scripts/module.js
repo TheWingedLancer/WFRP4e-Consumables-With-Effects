@@ -200,33 +200,60 @@ function parseNaturalLanguage(input) {
     .replace(new RegExp(`${condVerbs}\\s+(?:\\w+\\s+)?(?:the\\s+)?(?:${condNames})(?:\\s+conditions?)?`, "gi"), "")
     .trim();
 
-  // Phase 1: Extract "VERB char_list by NUMBER" phrases (handles embedded "and")
+  // Phase 1: Extract complete verb-phrases before splitting on "and".
+  // Four sub-patterns:
+  //   1a. "increase DEX and AGI by 5"     — VERB + char_list + by + N
+  //   1b. "add 5 to Initiative"           — VERB + N + to + char
+  //   1c. "lower FEL by 5"               — VERB(neg) + char_list + by + N
+  //   1d. "subtract 10 from Agility"      — VERB(neg) + N + from + char
   const consumedRanges = [];
-
-  // Positive: "increase DEX and AGI by 5", "boost Toughness by 10"
-  const vpPos = new RegExp("(?:add|increase|boost|raise|grant|give)\\s+(.+?)\\s+by\\s+(\\w+)", "gi");
   let vpm;
-  while ((vpm = vpPos.exec(charText)) !== null) {
+
+  // 1a. Positive: "VERB chars by N"
+  const vp1a = new RegExp("(?:add|increase|boost|raise|grant|give)\\s+(.+?)\\s+by\\s+(\\w+)", "gi");
+  while ((vpm = vp1a.exec(charText)) !== null) {
     const val = toNum(vpm[2]);
     if (!val) continue;
     const names = vpm[1].split(/\s*(?:,\s*and|,|and)\s*/).map(s => s.trim()).filter(Boolean);
-    for (const cn of names) {
-      const abbrev = CHAR_MAP[cn];
-      if (abbrev) _addCharChange(result, abbrev, val);
-    }
+    const valid = names.filter(cn => CHAR_MAP[cn]);
+    if (!valid.length) continue;
+    for (const cn of valid) _addCharChange(result, CHAR_MAP[cn], val);
     consumedRanges.push([vpm.index, vpm.index + vpm[0].length]);
   }
 
-  // Negative: "lower FEL by 5", "decrease Strength and Toughness by 10"
-  const vpNeg = new RegExp("(?:subtract|decrease|reduce|lower|drain)\\s+(.+?)\\s+by\\s+(\\w+)", "gi");
-  while ((vpm = vpNeg.exec(charText)) !== null) {
+  // 1b. Positive: "VERB N to char" (e.g. "add 5 to initiative")
+  const vp1b = new RegExp("(?:add|increase|boost|raise|grant|give)\\s+(\\w+)\\s+to\\s+([a-z][a-z ]*?)(?:\\s*(?:and|,)|$)", "gi");
+  while ((vpm = vp1b.exec(charText)) !== null) {
+    const val = toNum(vpm[1]);
+    if (!val) continue;
+    const charName = vpm[2].trim();
+    const abbrev = CHAR_MAP[charName];
+    if (!abbrev) continue;
+    _addCharChange(result, abbrev, val);
+    consumedRanges.push([vpm.index, vpm.index + vpm[0].length]);
+  }
+
+  // 1c. Negative: "VERB chars by N"
+  const vp1c = new RegExp("(?:subtract|decrease|reduce|lower|drain)\\s+(.+?)\\s+by\\s+(\\w+)", "gi");
+  while ((vpm = vp1c.exec(charText)) !== null) {
     const val = toNum(vpm[2]);
     if (!val) continue;
     const names = vpm[1].split(/\s*(?:,\s*and|,|and)\s*/).map(s => s.trim()).filter(Boolean);
-    for (const cn of names) {
-      const abbrev = CHAR_MAP[cn];
-      if (abbrev) _addCharChange(result, abbrev, -val);
-    }
+    const valid = names.filter(cn => CHAR_MAP[cn]);
+    if (!valid.length) continue;
+    for (const cn of valid) _addCharChange(result, CHAR_MAP[cn], -val);
+    consumedRanges.push([vpm.index, vpm.index + vpm[0].length]);
+  }
+
+  // 1d. Negative: "VERB N from char" (e.g. "subtract 10 from agility")
+  const vp1d = new RegExp("(?:subtract|decrease|reduce|lower|drain)\\s+(\\w+)\\s+(?:from|to)\\s+([a-z][a-z ]*?)(?:\\s*(?:and|,)|$)", "gi");
+  while ((vpm = vp1d.exec(charText)) !== null) {
+    const val = toNum(vpm[1]);
+    if (!val) continue;
+    const charName = vpm[2].trim();
+    const abbrev = CHAR_MAP[charName];
+    if (!abbrev) continue;
+    _addCharChange(result, abbrev, -val);
     consumedRanges.push([vpm.index, vpm.index + vpm[0].length]);
   }
 
