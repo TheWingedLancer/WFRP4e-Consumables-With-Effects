@@ -712,7 +712,7 @@ async function _injectConsumeButtons(app, html, data) {
     btn.dataset.action = "ce-consume";
     btn.title = game.i18n.localize("CONSUMABLE_EFFECTS.consume");
     btn.classList.add("ce-consume-btn");
-    btn.innerHTML = `<i class="fas fa-drumstick-bite"></i>`;
+    btn.innerHTML = `<i class="fas fa-plate-utensils"></i>`;
 
     btn.addEventListener("click", async (ev) => {
       ev.preventDefault();
@@ -747,7 +747,7 @@ function _injectItemSheetConsumeButton(app, html, data) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.dataset.action = "ce-consume";
-  btn.innerHTML = `<i class="fas fa-drumstick-bite"></i> ${game.i18n.localize("CONSUMABLE_EFFECTS.consume")}`;
+  btn.innerHTML = `<i class="fas fa-plate-utensils"></i> ${game.i18n.localize("CONSUMABLE_EFFECTS.consume")}`;
 
   btn.addEventListener("click", async (ev) => {
     ev.preventDefault();
