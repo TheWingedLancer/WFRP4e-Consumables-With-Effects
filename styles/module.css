@@ -366,3 +366,24 @@ button.ce-cancel-btn:hover {
   font-size: 0.85rem;
   padding: 4px 0;
 }
+
+
+/* ---------------------------------------------------------------------------
+ * INLINE CONSUME BUTTON (on actor sheet inventory rows)
+ * A small drumstick icon that appears next to consumable items in the
+ * actor's inventory.  Uses a subtle style that fits alongside WFRP4e's
+ * existing item control icons.
+ * --------------------------------------------------------------------------- */
+.ce-inline-consume-btn {
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s, color 0.15s;
+  margin-left: 4px;
+  color: inherit;
+  font-size: 0.9em;
+}
+
+.ce-inline-consume-btn:hover {
+  opacity: 1;
+  color: #8b1a1a;
+}

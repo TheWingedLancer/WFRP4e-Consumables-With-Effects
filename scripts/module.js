@@ -227,39 +227,66 @@ function parseNaturalLanguage(input) {
 
   /* ---- 2d. Characteristic modifiers ----
    * Split the whole string on commas and "and" so each segment contains at
-   * most one characteristic reference, then run three patterns per segment.
+   * most one characteristic reference, then run multiple patterns per segment.
    *
-   * Pattern A — signed literal:   "+10 Toughness", "-5 WS", "+20 to BS"
-   * Pattern B — increase verb:    "Add 20 to Weapon Skill", "Boost Agility by 10"
-   * Pattern C — decrease verb:    "Subtract 10 from Agility", "Lower Init by 5"
+   * Pattern A — signed literal:       "+10 Toughness", "-5 WS", "+20 to BS"
+   * Pattern B — verb + number + char: "Add 20 to Weapon Skill"
+   * Pattern C — verb - number + char: "Subtract 10 from Agility"
+   * Pattern D — verb + char + by + N: "Increase Agility by 10"
+   * Pattern E — verb - char + by + N: "Decrease Strength by 5", "Reduce WP by 10"
    */
-  const segments = text.split(/\s*(?:,|and)\s*/);
+  const segments = text.split(/\s*(?:,\s*and|,|and)\s*/);
 
   for (const segment of segments) {
     // Pattern A: a number (optionally signed) followed by a characteristic name
+    //   e.g. "+10 Toughness", "-5 WS", "+20 to Weapon Skill"
     const patternA = segment.match(
       /([+-]?\s*\d+)\s+(?:to\s+)?([a-z\s]+?)(?:\s+(?:for|lasting|duration)|$)/i
     );
-    // Pattern B: an "increase" verb, then a number, then a characteristic
+
+    // Pattern B: increase-verb + NUMBER + (to)? + CHARACTERISTIC
+    //   e.g. "Add 20 to Weapon Skill", "Grant 10 Toughness"
     const patternB = segment.match(
-      /(?:add|increase|boost|raise|grant|give)\s+(\d+)\s+(?:to\s+)?([a-z\s]+?)(?:\s+(?:by|for|lasting)|$)/i
+      /(?:add|increase|boost|raise|grant|give)\s+(\d+)\s+(?:to\s+)?([a-z\s]+?)(?:\s+(?:for|lasting|duration)|$)/i
     );
-    // Pattern C: a "decrease" verb, then a number, then a characteristic
+
+    // Pattern C: decrease-verb + NUMBER + (from)? + CHARACTERISTIC
+    //   e.g. "Subtract 10 from Agility"
     const patternC = segment.match(
-      /(?:subtract|decrease|reduce|lower|remove|drain)\s+(\d+)\s+(?:from\s+|to\s+)?([a-z\s]+?)(?:\s+(?:by|for|lasting)|$)/i
+      /(?:subtract|decrease|reduce|lower|remove|drain)\s+(\d+)\s+(?:from\s+|to\s+)?([a-z\s]+?)(?:\s+(?:for|lasting|duration)|$)/i
+    );
+
+    // Pattern D: increase-verb + CHARACTERISTIC + by + NUMBER
+    //   e.g. "Increase Agility by 10", "Boost Toughness by 20"
+    const patternD = segment.match(
+      /(?:add|increase|boost|raise|grant|give)\s+([a-z\s]+?)\s+by\s+(\d+)/i
+    );
+
+    // Pattern E: decrease-verb + CHARACTERISTIC + by + NUMBER
+    //   e.g. "Decrease Strength by 5", "Reduce Fellowship by 10"
+    const patternE = segment.match(
+      /(?:subtract|decrease|reduce|lower|remove|drain)\s+([a-z\s]+?)\s+by\s+(\d+)/i
     );
 
     let charName = null;
     let value    = null;
 
-    if (patternA) {
+    if (patternD) {
+      // Check D before B because D is more specific ("increase X by N")
+      charName = patternD[1].trim();
+      value    = parseInt(patternD[2]);
+    } else if (patternE) {
+      // Check E before C for the same reason
+      charName = patternE[1].trim();
+      value    = -parseInt(patternE[2]);
+    } else if (patternA) {
       value    = parseInt(patternA[1].replace(/\s/g, ""));
       charName = patternA[2].trim();
     } else if (patternB) {
       value    = parseInt(patternB[1]);
       charName = patternB[2].trim();
     } else if (patternC) {
-      value    = -parseInt(patternC[1]); // Negate because it's a decrease
+      value    = -parseInt(patternC[1]);
       charName = patternC[2].trim();
     }
 
@@ -860,31 +887,31 @@ Hooks.on("renderItemDirectory", (app, html, data) => {
 });
 
 /* ---------- renderItemSheet ----------
- * Fires every time an Item sheet renders.  If the item has our isConsumable
- * flag, we inject a "Consume" button into the sheet header.
+ * Fires every time any Item sheet renders (world-level or actor-owned).
+ * If the item has our isConsumable flag, we inject a "Consume" button.
  *
- * V13 COMPATIBILITY: Uses native DOM methods.  The app.object accessor may
- * differ between V1 and V2 Application frameworks, so we also try app.document.
+ * V13 COMPATIBILITY: Uses native DOM.  Also hooks the WFRP4e-specific
+ * sheet names since WFRP4e may use its own sheet class (e.g. "ItemSheetWfrp4e").
  */
 Hooks.on("renderItemSheet", (app, html, data) => {
   const item = app.document ?? app.object;
   if (!item?.flags?.[MODULE_ID]?.isConsumable) return;
 
-  // Normalise: V12 passes jQuery, V13 passes HTMLElement
   const element = html instanceof HTMLElement ? html : html[0];
   if (!element) return;
 
-  // Build the consume button using native DOM
-  const consumeBtn = document.createElement("a");
-  consumeBtn.classList.add("ce-use-button");
-  consumeBtn.title = game.i18n.localize("CONSUMABLE_EFFECTS.consume");
+  // Don't add duplicate buttons on re-render
+  if (element.querySelector("[data-action='ce-consume']")) return;
+
+  const consumeBtn = document.createElement("button");
+  consumeBtn.type = "button";
+  consumeBtn.dataset.action = "ce-consume";
   consumeBtn.innerHTML = `<i class="fas fa-drumstick-bite"></i> ${game.i18n.localize("CONSUMABLE_EFFECTS.consume")}`;
 
   consumeBtn.addEventListener("click", async (ev) => {
     ev.preventDefault();
     const actor = item.parent;
     if (!actor) {
-      // Item is in the world sidebar, not on a character — fall back to selected token
       const token = canvas.tokens.controlled[0];
       if (!token) {
         ui.notifications.warn(game.i18n.localize("CONSUMABLE_EFFECTS.noToken"));
@@ -896,38 +923,50 @@ Hooks.on("renderItemSheet", (app, html, data) => {
     }
   });
 
-  // Insert into the sheet header — try multiple selectors for V12/V13 compat
+  // Insert into the sheet — try multiple locations for V12/V13 and WFRP4e compat
   const target = element.querySelector(".sheet-header .item-controls")
               || element.querySelector(".sheet-header")
+              || element.querySelector(".window-header")
               || element.querySelector("header");
   if (target) {
     target.prepend(consumeBtn);
   }
 });
 
-/* ---------- getItemDirectoryEntryContext ----------
- * Fires when Foundry builds the right-click context menu for entries in the
- * Items Directory.  We push a "Consume" option that only appears for items
- * bearing our isConsumable flag.
+/* ---------- Actor sheet: "Consume" on right-click inventory items ----------
+ * WFRP4e renders its own actor sheet with inventory sections.  We hook into
+ * every possible actor sheet render hook to inject right-click context menu
+ * options onto inventory items that are our consumables.
  *
- * V13 COMPATIBILITY: The `li` parameter may be a native HTMLElement in V13
- * instead of a jQuery object.  We use dataset for attribute access.
+ * We also listen for the WFRP4e-specific hook if available.
  */
+
+// Generic: works for any system's actor sheet
+Hooks.on("getActorSheetItemContext", (app, options) => {
+  _addConsumeContextOption(options, "actorSheet");
+});
+
+// WFRP4e-specific: the system fires its own context menu hooks
+Hooks.on("getItemListContextOptions", (app, options) => {
+  _addConsumeContextOption(options, "wfrp4eItemList");
+});
+
+// Fallback: standard Foundry actor directory context
+Hooks.on("getActorDirectoryEntryContext", (html, options) => {
+  // Not used for consume — actors aren't consumables
+});
+
+// World-level Items Directory right-click
 Hooks.on("getItemDirectoryEntryContext", (html, options) => {
   options.push({
     name: game.i18n.localize("CONSUMABLE_EFFECTS.consume"),
     icon: '<i class="fas fa-drumstick-bite"></i>',
-
-    // Only show the option for our consumable items
     condition: (li) => {
-      // Normalise: V12 jQuery vs V13 HTMLElement
       const el     = li instanceof HTMLElement ? li : li[0];
       const itemId = el?.dataset?.documentId || el?.dataset?.entityId;
       const item   = game.items.get(itemId);
       return item?.flags?.[MODULE_ID]?.isConsumable;
     },
-
-    // When clicked: find the matching item in the selected token's inventory
     callback: async (li) => {
       const el     = li instanceof HTMLElement ? li : li[0];
       const itemId = el?.dataset?.documentId || el?.dataset?.entityId;
@@ -937,8 +976,6 @@ Hooks.on("getItemDirectoryEntryContext", (html, options) => {
         ui.notifications.warn(game.i18n.localize("CONSUMABLE_EFFECTS.noToken"));
         return;
       }
-
-      // Search the Actor's inventory for an item with the same name and our flag
       const actorItem = token.actor.items.find(
         i => i.name === item.name && i.flags?.[MODULE_ID]?.isConsumable
       );
@@ -946,8 +983,94 @@ Hooks.on("getItemDirectoryEntryContext", (html, options) => {
         ui.notifications.warn(game.i18n.localize("CONSUMABLE_EFFECTS.noItem"));
         return;
       }
-
       await consumeItem(token.actor, actorItem);
     },
   });
+});
+
+/**
+ * Helper: adds a "Consume" option to any context menu options array.
+ * Works for both actor sheet item contexts and WFRP4e-specific contexts.
+ * @param {Array} options — the context menu options array to push onto
+ * @param {string} source — debug label for which hook called this
+ */
+function _addConsumeContextOption(options, source) {
+  options.push({
+    name: game.i18n.localize("CONSUMABLE_EFFECTS.consume"),
+    icon: '<i class="fas fa-drumstick-bite"></i>',
+    condition: (li) => {
+      const el = li instanceof HTMLElement ? li : li[0];
+      const itemId = el?.dataset?.documentId || el?.dataset?.entityId || el?.dataset?.itemId;
+      if (!itemId) return false;
+      // Try to find the item — could be on any actor
+      for (const actor of game.actors) {
+        const item = actor.items.get(itemId);
+        if (item?.flags?.[MODULE_ID]?.isConsumable) return true;
+      }
+      return false;
+    },
+    callback: async (li) => {
+      const el = li instanceof HTMLElement ? li : li[0];
+      const itemId = el?.dataset?.documentId || el?.dataset?.entityId || el?.dataset?.itemId;
+      if (!itemId) return;
+      // Find the item and its owning actor
+      for (const actor of game.actors) {
+        const item = actor.items.get(itemId);
+        if (item?.flags?.[MODULE_ID]?.isConsumable) {
+          await consumeItem(actor, item);
+          return;
+        }
+      }
+      ui.notifications.warn(game.i18n.localize("CONSUMABLE_EFFECTS.noItem"));
+    },
+  });
+}
+
+/* ---------- Actor sheet: inject a "Consume" button next to consumable items ----------
+ * This renders a small consume button directly in the actor's inventory list
+ * next to any item flagged as one of our consumables.  This is the most
+ * reliable way to give players access to the consume action regardless of
+ * which sheet class or context menu hooks the WFRP4e system provides.
+ */
+Hooks.on("renderActorSheet", (app, html, data) => {
+  const actor = app.document ?? app.object;
+  if (!actor) return;
+
+  const element = html instanceof HTMLElement ? html : html[0];
+  if (!element) return;
+
+  // Find all inventory item entries in the actor sheet
+  const itemEntries = element.querySelectorAll("[data-item-id], [data-document-id]");
+
+  for (const entry of itemEntries) {
+    const itemId = entry.dataset.itemId || entry.dataset.documentId;
+    if (!itemId) continue;
+
+    const item = actor.items.get(itemId);
+    if (!item?.flags?.[MODULE_ID]?.isConsumable) continue;
+
+    // Don't add duplicate buttons on re-render
+    if (entry.querySelector("[data-action='ce-consume-inline']")) continue;
+
+    // Create a small consume button and append it to the item row
+    const btn = document.createElement("a");
+    btn.dataset.action = "ce-consume-inline";
+    btn.title = game.i18n.localize("CONSUMABLE_EFFECTS.consume");
+    btn.classList.add("ce-inline-consume-btn");
+    btn.innerHTML = `<i class="fas fa-drumstick-bite"></i>`;
+
+    btn.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation(); // Don't open the item sheet
+      await consumeItem(actor, item);
+      // Re-render the actor sheet to reflect quantity change
+      app.render(false);
+    });
+
+    // Try to insert near the item's controls/buttons area
+    const controls = entry.querySelector(".item-controls")
+                  || entry.querySelector(".item-buttons")
+                  || entry;
+    controls.appendChild(btn);
+  }
 });
