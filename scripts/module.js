@@ -392,28 +392,35 @@ class ConsumableCreatorApp extends FormApplication {
    *   • Generate — parses the natural-language textarea and re-renders
    *   • Save    — calls _createItem() to persist the item + effect
    *   • Cancel  — closes the dialog
+   *
+   * V13 COMPATIBILITY: FormApplication (V1) still passes jQuery in V13,
+   * but we use a helper _q() to safely handle both jQuery and HTMLElement
+   * so the code is forward-compatible for eventual migration to ApplicationV2.
    */
   /** @override */
   activateListeners(html) {
     super.activateListeners(html);
 
+    // Normalise: get the raw HTMLElement regardless of jQuery or native
+    const el = html instanceof HTMLElement ? html : html[0] ?? html;
+
     // "Generate" button — run the parser and re-render to show preview
-    html.find(".ce-generate-btn").click((ev) => {
+    el.querySelector(".ce-generate-btn")?.addEventListener("click", (ev) => {
       ev.preventDefault();
-      const desc = html.find("[name='effectDescription']").val();
+      const desc = el.querySelector("[name='effectDescription']")?.value;
       if (!desc) return;
       this._parsedEffect = parseNaturalLanguage(desc);
       this.render(false); // false = don't reset scroll position
     });
 
     // "Save Item" button — persist the item to the world
-    html.find(".ce-save-btn").click(async (ev) => {
+    el.querySelector(".ce-save-btn")?.addEventListener("click", async (ev) => {
       ev.preventDefault();
-      await this._createItem(html);
+      await this._createItem(el);
     });
 
     // "Cancel" button — close without saving
-    html.find(".ce-cancel-btn").click((ev) => {
+    el.querySelector(".ce-cancel-btn")?.addEventListener("click", (ev) => {
       ev.preventDefault();
       this.close();
     });
@@ -431,13 +438,14 @@ class ConsumableCreatorApp extends FormApplication {
    * Module-specific data (isConsumable flag, heal amount, original NL text)
    * is stored on item.flags[MODULE_ID] so consume logic can find it later.
    */
-  async _createItem(html) {
-    // ---- Read form values ----
-    const name         = html.find("[name='itemName']").val() || "Consumable";
-    const description  = html.find("[name='itemDescription']").val() || "";
-    const quantity     = parseInt(html.find("[name='quantity']").val()) || 1;
-    const encumbrance  = parseFloat(html.find("[name='encumbrance']").val()) || 0;
-    const trappingType = html.find("[name='trappingType']").val() || "foodAndDrink";
+  async _createItem(el) {
+    // ---- Read form values using native DOM ----
+    // el is now always an HTMLElement (normalised in activateListeners)
+    const name         = el.querySelector("[name='itemName']")?.value || "Consumable";
+    const description  = el.querySelector("[name='itemDescription']")?.value || "";
+    const quantity     = parseInt(el.querySelector("[name='quantity']")?.value) || 1;
+    const encumbrance  = parseFloat(el.querySelector("[name='encumbrance']")?.value) || 0;
+    const trappingType = el.querySelector("[name='trappingType']")?.value || "foodAndDrink";
 
     // ---- Validate: we must have at least one change or a heal amount ----
     if (!this._parsedEffect
@@ -465,7 +473,7 @@ class ConsumableCreatorApp extends FormApplication {
           isConsumable:    true,                // Marks this item for our consume logic
           healAmount:      this._parsedEffect.heal,       // Wounds to restore (or null)
           effectName:      this._parsedEffect.effectName,  // Human-readable summary
-          naturalLanguage: html.find("[name='effectDescription']").val(), // Original GM text
+          naturalLanguage: el.querySelector("[name='effectDescription']")?.value, // Original GM text
         },
       },
     };
@@ -769,42 +777,67 @@ Hooks.once("ready", () => {
  * Fires every time the Items sidebar tab renders.  We inject a styled
  * "Create Consumable" button into the header's action-buttons row.
  * Only shown to GMs, and only if the "showHeaderButton" setting is true.
+ *
+ * V13 COMPATIBILITY: In Foundry V13, the `html` parameter passed to render
+ * hooks is a native HTMLElement, not a jQuery object.  We use native DOM
+ * methods (querySelector, createElement, addEventListener) instead of
+ * jQuery's .find(), $(), and .click() to support both V12 and V13.
  */
 Hooks.on("renderItemDirectory", (app, html, data) => {
   if (!game.user.isGM) return;
   if (!game.settings.get(MODULE_ID, "showHeaderButton")) return;
 
-  const button = $(`<button class="ce-use-button" style="margin: 4px;">
-    <i class="fas fa-utensils"></i> ${game.i18n.localize("CONSUMABLE_EFFECTS.createItem")}
-  </button>`);
+  // Normalise: V12 passes jQuery, V13 passes HTMLElement
+  const element = html instanceof HTMLElement ? html : html[0];
+  if (!element) return;
 
-  button.click((ev) => {
+  // Build the button using native DOM — no jQuery dependency
+  const button = document.createElement("button");
+  button.classList.add("ce-use-button");
+  button.style.margin = "4px";
+  button.innerHTML = `<i class="fas fa-utensils"></i> ${game.i18n.localize("CONSUMABLE_EFFECTS.createItem")}`;
+  button.addEventListener("click", (ev) => {
     ev.preventDefault();
     new ConsumableCreatorApp().render(true);
   });
 
-  // Append into the existing action-buttons container in the directory header
-  html.find(".directory-header .action-buttons").append(button);
+  // Try multiple selectors to find the right insertion point across V12/V13.
+  // V12 uses ".directory-header .action-buttons", V13 may use ".header-actions"
+  // or just ".action-buttons" at a different nesting level.
+  const target = element.querySelector(".directory-header .action-buttons")
+              || element.querySelector(".header-actions")
+              || element.querySelector(".action-buttons")
+              || element.querySelector("header");
+  if (target) {
+    target.appendChild(button);
+  } else {
+    // Last resort: prepend to the element itself so the button still appears
+    element.prepend(button);
+  }
 });
 
 /* ---------- renderItemSheet ----------
  * Fires every time an Item sheet renders.  If the item has our isConsumable
  * flag, we inject a "Consume" button into the sheet header.
  *
- * Clicking the button calls consumeItem() with either:
- *   • item.parent (if the item is owned by an Actor), or
- *   • the currently selected token's actor (if the item is unowned/world-level)
+ * V13 COMPATIBILITY: Uses native DOM methods.  The app.object accessor may
+ * differ between V1 and V2 Application frameworks, so we also try app.document.
  */
 Hooks.on("renderItemSheet", (app, html, data) => {
-  const item = app.object;
+  const item = app.document ?? app.object;
   if (!item?.flags?.[MODULE_ID]?.isConsumable) return;
 
-  const consumeBtn = $(`<a class="ce-use-button"
-      title="${game.i18n.localize("CONSUMABLE_EFFECTS.consume")}">
-    <i class="fas fa-drumstick-bite"></i> ${game.i18n.localize("CONSUMABLE_EFFECTS.consume")}
-  </a>`);
+  // Normalise: V12 passes jQuery, V13 passes HTMLElement
+  const element = html instanceof HTMLElement ? html : html[0];
+  if (!element) return;
 
-  consumeBtn.click(async (ev) => {
+  // Build the consume button using native DOM
+  const consumeBtn = document.createElement("a");
+  consumeBtn.classList.add("ce-use-button");
+  consumeBtn.title = game.i18n.localize("CONSUMABLE_EFFECTS.consume");
+  consumeBtn.innerHTML = `<i class="fas fa-drumstick-bite"></i> ${game.i18n.localize("CONSUMABLE_EFFECTS.consume")}`;
+
+  consumeBtn.addEventListener("click", async (ev) => {
     ev.preventDefault();
     const actor = item.parent;
     if (!actor) {
@@ -820,7 +853,13 @@ Hooks.on("renderItemSheet", (app, html, data) => {
     }
   });
 
-  html.find(".sheet-header .item-controls, .sheet-header").last().prepend(consumeBtn);
+  // Insert into the sheet header — try multiple selectors for V12/V13 compat
+  const target = element.querySelector(".sheet-header .item-controls")
+              || element.querySelector(".sheet-header")
+              || element.querySelector("header");
+  if (target) {
+    target.prepend(consumeBtn);
+  }
 });
 
 /* ---------- getItemDirectoryEntryContext ----------
@@ -828,8 +867,8 @@ Hooks.on("renderItemSheet", (app, html, data) => {
  * Items Directory.  We push a "Consume" option that only appears for items
  * bearing our isConsumable flag.
  *
- * Because directory items aren't owned by an Actor, we require the GM to
- * have a token selected on the canvas as the target.
+ * V13 COMPATIBILITY: The `li` parameter may be a native HTMLElement in V13
+ * instead of a jQuery object.  We use dataset for attribute access.
  */
 Hooks.on("getItemDirectoryEntryContext", (html, options) => {
   options.push({
@@ -838,14 +877,17 @@ Hooks.on("getItemDirectoryEntryContext", (html, options) => {
 
     // Only show the option for our consumable items
     condition: (li) => {
-      const itemId = li.data("documentId") || li.data("entityId");
+      // Normalise: V12 jQuery vs V13 HTMLElement
+      const el     = li instanceof HTMLElement ? li : li[0];
+      const itemId = el?.dataset?.documentId || el?.dataset?.entityId;
       const item   = game.items.get(itemId);
       return item?.flags?.[MODULE_ID]?.isConsumable;
     },
 
     // When clicked: find the matching item in the selected token's inventory
     callback: async (li) => {
-      const itemId = li.data("documentId") || li.data("entityId");
+      const el     = li instanceof HTMLElement ? li : li[0];
+      const itemId = el?.dataset?.documentId || el?.dataset?.entityId;
       const item   = game.items.get(itemId);
       const token  = canvas.tokens.controlled[0];
       if (!token) {
