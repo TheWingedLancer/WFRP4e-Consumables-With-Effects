@@ -183,81 +183,95 @@ function parseNaturalLanguage(input) {
   }
 
   // ---- Characteristics ----
-  // Two strategies:
+  // The word "and" appears both WITHIN a phrase ("increase DEX and AGI by 5")
+  // and BETWEEN independent phrases ("lower FEL by 5 and increase DEX and AGI by 5").
+  // Splitting on "and" first would destroy the internal conjunctions.
   //
-  // Strategy A (shared modifier): "+10 Toughness, Strength, and Agility for six rounds"
-  //   → detect a leading number, then collect all comma/and-separated characteristic names
-  //
-  // Strategy B (per-segment): "+10 Toughness and +5 WP for 5 rounds"
-  //   → each segment has its own number+characteristic
-  //
-  // We detect Strategy A by checking if the first segment has a number but subsequent
-  // segments are bare characteristic names (no number).
+  // Strategy:
+  //   Phase 1 — Extract complete verb-phrases ("increase X and Y by N") using regex.
+  //             These are matched as whole units before any splitting occurs.
+  //   Phase 2 — Remove the matched verb-phrases from the text, then split the
+  //             remainder on "and"/comma for signed-number patterns (+10 WS).
 
-  // First, strip out duration/condition/heal phrases to isolate characteristic text
+  // Strip duration/condition/heal phrases to isolate characteristic text
   let charText = text
     .replace(/(?:for|lasting)\s+\w+\s+(?:rounds?|hours?|minutes?)/gi, "")
     .replace(/(?:heal|restore|recover|regain)\s+\w+\s*wounds?/gi, "")
     .replace(new RegExp(`${condVerbs}\\s+(?:\\w+\\s+)?(?:the\\s+)?(?:${condNames})(?:\\s+conditions?)?`, "gi"), "")
     .trim();
 
-  const segments = charText.split(/\s*(?:,\s*and|,|and)\s*/).filter(s => s.trim());
+  // Phase 1: Extract "VERB char_list by NUMBER" phrases (handles embedded "and")
+  const consumedRanges = [];
 
-  // Check if this is a shared-modifier pattern: first segment has a number,
-  // remaining segments are bare characteristic names
-  let sharedValue = null;
-  let firstCharName = null;
-
-  if (segments.length > 1) {
-    const firstMatch = segments[0].match(/([+-]?\s*\d+)\s+(?:to\s+)?([a-z\s]+)/i);
-    if (firstMatch) {
-      const bareNames = segments.slice(1).every(s => {
-        const trimmed = s.trim();
-        return CHAR_MAP[trimmed] !== undefined && !trimmed.match(/\d/);
-      });
-      if (bareNames) {
-        sharedValue = parseInt(firstMatch[1].replace(/\s/g, ""));
-        firstCharName = firstMatch[2].trim();
-      }
+  // Positive: "increase DEX and AGI by 5", "boost Toughness by 10"
+  const vpPos = new RegExp("(?:add|increase|boost|raise|grant|give)\\s+(.+?)\\s+by\\s+(\\w+)", "gi");
+  let vpm;
+  while ((vpm = vpPos.exec(charText)) !== null) {
+    const val = toNum(vpm[2]);
+    if (!val) continue;
+    const names = vpm[1].split(/\s*(?:,\s*and|,|and)\s*/).map(s => s.trim()).filter(Boolean);
+    for (const cn of names) {
+      const abbrev = CHAR_MAP[cn];
+      if (abbrev) _addCharChange(result, abbrev, val);
     }
+    consumedRanges.push([vpm.index, vpm.index + vpm[0].length]);
   }
 
-  if (sharedValue !== null && firstCharName) {
-    // Strategy A: shared modifier across multiple characteristics
-    const allNames = [firstCharName, ...segments.slice(1).map(s => s.trim())];
-    for (const charName of allNames) {
-      const abbrev = CHAR_MAP[charName];
-      if (!abbrev) continue;
-      _addCharChange(result, abbrev, sharedValue);
+  // Negative: "lower FEL by 5", "decrease Strength and Toughness by 10"
+  const vpNeg = new RegExp("(?:subtract|decrease|reduce|lower|drain)\\s+(.+?)\\s+by\\s+(\\w+)", "gi");
+  while ((vpm = vpNeg.exec(charText)) !== null) {
+    const val = toNum(vpm[2]);
+    if (!val) continue;
+    const names = vpm[1].split(/\s*(?:,\s*and|,|and)\s*/).map(s => s.trim()).filter(Boolean);
+    for (const cn of names) {
+      const abbrev = CHAR_MAP[cn];
+      if (abbrev) _addCharChange(result, abbrev, -val);
     }
-  } else {
-    // Strategy B: parse each segment independently
-    for (const seg of segments) {
-      if (seg.match(/^(?:add|remove|apply|cure|clear|heal|restore|recover|regain|dispel|lift)\s/i)) continue;
+    consumedRanges.push([vpm.index, vpm.index + vpm[0].length]);
+  }
 
-      // Pattern D: "Increase Agility by 10"
-      const pD = seg.match(/(?:add|increase|boost|raise|grant|give)\s+([a-z\s]+?)\s+by\s+(\w+)/i);
-      // Pattern E: "Decrease Strength by 5"
-      const pE = seg.match(/(?:subtract|decrease|reduce|lower|drain)\s+([a-z\s]+?)\s+by\s+(\w+)/i);
-      // Pattern A: "+10 Toughness" or "-5 WS"
-      const pA = seg.match(/([+-]?\s*\d+)\s+(?:to\s+)?([a-z\s]+?)$/i);
-      // Pattern B: "Add 20 to Weapon Skill"
-      const pB = seg.match(/(?:add|increase|boost|raise|grant|give)\s+(\w+)\s+(?:to\s+)?([a-z\s]+?)$/i);
-      // Pattern C: "Subtract 10 from Agility"
-      const pC = seg.match(/(?:subtract|decrease|reduce|lower|drain)\s+(\w+)\s+(?:from\s+|to\s+)?([a-z\s]+?)$/i);
+  // Phase 2: Remove consumed ranges, then parse remainder for signed patterns
+  let remainder = charText;
+  consumedRanges.sort((a, b) => b[0] - a[0]);
+  for (const [start, end] of consumedRanges) {
+    remainder = remainder.substring(0, start) + remainder.substring(end);
+  }
+  remainder = remainder.replace(/^\s*(?:and|,)\s*/i, "").replace(/\s*(?:and|,)\s*$/i, "").trim();
 
-      let charName = null, value = null;
-      if (pD)      { charName = pD[1].trim(); value = toNum(pD[2]); }
-      else if (pE) { charName = pE[1].trim(); const n = toNum(pE[2]); value = n ? -n : null; }
-      else if (pA) { value = parseInt(pA[1].replace(/\s/g, "")); charName = pA[2].trim(); }
-      else if (pB) { value = toNum(pB[1]); charName = pB[2].trim(); }
-      else if (pC) { const n = toNum(pC[1]); value = n ? -n : null; charName = pC[2].trim(); }
+  if (remainder) {
+    const segments = remainder.split(/\s*(?:,\s*and|,|and)\s*/).filter(s => s.trim());
 
-      if (charName && value !== null) {
-        if (charName.includes("movement") || charName.includes("wound")) continue;
-        const abbrev = CHAR_MAP[charName];
-        if (!abbrev) continue;
-        _addCharChange(result, abbrev, value);
+    // Check for shared modifier: "+10 Toughness, Strength, and Agility"
+    let sharedValue = null, firstCharName = null;
+    if (segments.length > 1) {
+      const fm = segments[0].match(/([+-]?\s*\d+)\s+(?:to\s+)?([a-z\s]+)/i);
+      if (fm) {
+        const bareNames = segments.slice(1).every(s => CHAR_MAP[s.trim()] !== undefined && !s.trim().match(/\d/));
+        if (bareNames) {
+          sharedValue = parseInt(fm[1].replace(/\s/g, ""));
+          firstCharName = fm[2].trim();
+        }
+      }
+    }
+
+    if (sharedValue !== null && firstCharName) {
+      const allNames = [firstCharName, ...segments.slice(1).map(s => s.trim())];
+      for (const cn of allNames) {
+        const abbrev = CHAR_MAP[cn];
+        if (abbrev) _addCharChange(result, abbrev, sharedValue);
+      }
+    } else {
+      for (const seg of segments) {
+        if (seg.match(/^(?:add|remove|apply|cure|clear|heal|restore|recover|regain|dispel|lift)\s/i)) continue;
+        const pA = seg.match(/([+-]?\s*\d+)\s+(?:to\s+)?([a-z\s]+?)$/i);
+        if (pA) {
+          const value = parseInt(pA[1].replace(/\s/g, ""));
+          const charName = pA[2].trim();
+          if (!charName.includes("movement") && !charName.includes("wound")) {
+            const abbrev = CHAR_MAP[charName];
+            if (abbrev) _addCharChange(result, abbrev, value);
+          }
+        }
       }
     }
   }
