@@ -60,14 +60,43 @@ const CONDITIONS = [
 /* ═══════════════════════════════════════════════════════════════════════════
  * §2  NATURAL LANGUAGE PARSER
  *
- * Converts GM text like "+10 Toughness and remove fatigued for 5 rounds"
+ * Converts GM text like "+10 Toughness for four hours and remove one fatigued condition"
  * into a structured object with changes, conditions, healing, and duration.
+ *
+ * Supported natural language patterns:
+ *   "+10 Toughness"                           — single characteristic
+ *   "+10 Toughness, Strength, and Agility"    — shared modifier across multiple
+ *   "Increase Agility by 10"                  — verb + char + by + number
+ *   "for 5 rounds" / "for four hours"         — duration (words or digits)
+ *   "heal 4 wounds" / "restore two wounds"    — healing
+ *   "remove fatigued" / "remove one fatigued condition" — conditions
+ *   "add 2 bleeding" / "add two stunned"      — add conditions with count
+ *   "cure blinded"                            — remove alias
  * ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Convert word-numbers to integers. Returns the original string parsed as int
+ * if it's already a digit string, or converts English words up to twenty.
+ */
+const WORD_NUMBERS = {
+  zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9,
+  ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15,
+  sixteen:16, seventeen:17, eighteen:18, nineteen:19, twenty:20,
+  a:1, an:1, the:1,
+};
+
+function toNum(str) {
+  if (!str) return null;
+  const s = str.trim().toLowerCase();
+  if (/^\d+$/.test(s)) return parseInt(s);
+  if (WORD_NUMBERS[s] !== undefined) return WORD_NUMBERS[s];
+  return null;
+}
 
 function parseNaturalLanguage(input) {
   const result = {
     changes: [],        // { key, mode, value, label } for ActiveEffect.changes
-    conditions: [],     // { name, action:"add"|"remove", count } for actor.addCondition/removeCondition
+    conditions: [],     // { name, action:"add"|"remove", count } for WFRP4e conditions
     duration: null,     // rounds (integer) or null
     heal: null,         // wounds to restore (integer) or null
     effectName: "",     // auto-generated label
@@ -75,33 +104,73 @@ function parseNaturalLanguage(input) {
 
   const text = input.toLowerCase().trim();
 
-  // ---- Duration: "for 5 rounds", "lasting 10 rounds", "5 rounds" ----
-  const durMatch = text.match(/(?:for|lasting|duration[:\s]*)?\s*(\d+)\s*rounds?/i);
-  if (durMatch) result.duration = parseInt(durMatch[1]);
-
-  // ---- Healing: "heal 4 wounds", "restore 3 wounds" ----
-  const healMatch = text.match(/(?:heal|restore|recover|regain)\s+(\d+)\s*wounds?/i);
-  if (healMatch) result.heal = parseInt(healMatch[1]);
-
-  // ---- Conditions: "add fatigued", "remove stunned", "add 2 bleeding" ----
-  // Also: "remove 1 fatigued", "apply poisoned", "cure blinded"
-  const condRegex = /(?:add|apply|inflict|give|cause)\s+(?:(\d+)\s+)?(\w+)|(?:remove|cure|clear|dispel)\s+(?:(\d+)\s+)?(\w+)/gi;
-  let condMatch;
-  while ((condMatch = condRegex.exec(text)) !== null) {
-    const isAdd = condMatch[0].match(/^(?:add|apply|inflict|give|cause)/i);
-    const count = parseInt(condMatch[1] || condMatch[3] || "1");
-    const name = (condMatch[2] || condMatch[4]).toLowerCase();
-    if (CONDITIONS.includes(name)) {
-      result.conditions.push({
-        name,
-        action: isAdd ? "add" : "remove",
-        count,
-        label: `${isAdd ? "Add" : "Remove"} ${count > 1 ? count + "× " : ""}${name.charAt(0).toUpperCase() + name.slice(1)}`,
-      });
+  // ---- Duration ----
+  // Matches: "for 5 rounds", "for four hours", "lasting six rounds", "10 rounds"
+  // Hours are converted to rounds (1 hour ≈ 600 rounds at 6-second rounds,
+  // but in WFRP4e a round is ~10 seconds, so 1 hour = 360 rounds.
+  // However, for practical game use we store hours as a large round count.)
+  const durMatch = text.match(/(?:for|lasting|duration[:\s]*)\s+(\w+)\s+(rounds?|hours?|minutes?)/i)
+                || text.match(/(\d+)\s+(rounds?|hours?|minutes?)/i);
+  if (durMatch) {
+    const n = toNum(durMatch[1]);
+    const unit = durMatch[2].toLowerCase().replace(/s$/, "");
+    if (n) {
+      if (unit === "round")       result.duration = n;
+      else if (unit === "hour")   result.duration = n * 360;  // ~10s per round
+      else if (unit === "minute") result.duration = n * 6;    // ~10s per round
     }
   }
 
-  // ---- Movement: "+2 movement", "reduce movement by 1" ----
+  // ---- Healing ----
+  // "heal 4 wounds", "restore two wounds", "recover one wound"
+  const healMatch = text.match(/(?:heal|restore|recover|regain)\s+(\w+)\s*wounds?/i);
+  if (healMatch) {
+    const n = toNum(healMatch[1]);
+    if (n) result.heal = n;
+  }
+
+  // ---- Conditions ----
+  // Patterns:
+  //   "add fatigued"                    → add 1 fatigued
+  //   "add 2 bleeding"                  → add 2 bleeding
+  //   "add one fatigued condition"      → add 1 fatigued
+  //   "remove the fatigued condition"   → remove 1 fatigued
+  //   "remove one fatigued"             → remove 1 fatigued
+  //   "cure blinded"                    → remove 1 blinded
+  //   "remove all fatigued"             → remove 99 fatigued (clear all)
+  //
+  // Strategy: scan for verb + optional count/article + condition_name + optional "condition(s)"
+  const condVerbs = "(?:add|apply|inflict|give|cause|remove|cure|clear|dispel|lift)";
+  const condNames = CONDITIONS.join("|");
+  const condRegex = new RegExp(
+    `${condVerbs}\\s+(?:(\\w+)\\s+)?(?:the\\s+)?(${condNames})(?:\\s+conditions?)?`,
+    "gi"
+  );
+  let condMatch;
+  while ((condMatch = condRegex.exec(text)) !== null) {
+    const verb = condMatch[0].trim().split(/\s/)[0].toLowerCase();
+    const isAdd = ["add", "apply", "inflict", "give", "cause"].includes(verb);
+    const countWord = condMatch[1]; // might be a number, "one", "all", or undefined
+    const condName = condMatch[2].toLowerCase();
+
+    let count = 1;
+    if (countWord) {
+      if (countWord === "all") count = 99; // "remove all fatigued"
+      else {
+        const n = toNum(countWord);
+        if (n) count = n;
+      }
+    }
+
+    result.conditions.push({
+      name: condName,
+      action: isAdd ? "add" : "remove",
+      count,
+      label: `${isAdd ? "Add" : "Remove"} ${count > 1 && count < 99 ? count + "× " : count >= 99 ? "all " : ""}${condName.charAt(0).toUpperCase() + condName.slice(1)}`,
+    });
+  }
+
+  // ---- Movement ----
   const movePlus = text.match(/(?:\+\s*(\d+)\s*(?:to\s+)?movement)|(?:(?:increase|add|boost)\s+movement\s+(?:by\s+)?(\d+))/i);
   const moveMinus = text.match(/(?:-\s*(\d+)\s*(?:to\s+)?movement)|(?:(?:reduce|decrease|subtract|lower)\s+movement\s+(?:by\s+)?(\d+))/i);
   if (movePlus) {
@@ -114,52 +183,81 @@ function parseNaturalLanguage(input) {
   }
 
   // ---- Characteristics ----
-  // Split on comma/and, then try 5 regex patterns per segment.
-  // Patterns D/E ("increase X by N") must be checked BEFORE A/B/C to avoid false matches.
-  const segments = text.split(/\s*(?:,\s*and|,|and)\s*/);
+  // Two strategies:
+  //
+  // Strategy A (shared modifier): "+10 Toughness, Strength, and Agility for six rounds"
+  //   → detect a leading number, then collect all comma/and-separated characteristic names
+  //
+  // Strategy B (per-segment): "+10 Toughness and +5 WP for 5 rounds"
+  //   → each segment has its own number+characteristic
+  //
+  // We detect Strategy A by checking if the first segment has a number but subsequent
+  // segments are bare characteristic names (no number).
 
-  for (const seg of segments) {
-    // Skip segments that are purely condition or heal matches (already handled)
-    if (seg.match(/^(?:add|remove|apply|cure|clear|heal|restore|recover|regain)\s/i)) continue;
+  // First, strip out duration/condition/heal phrases to isolate characteristic text
+  let charText = text
+    .replace(/(?:for|lasting)\s+\w+\s+(?:rounds?|hours?|minutes?)/gi, "")
+    .replace(/(?:heal|restore|recover|regain)\s+\w+\s*wounds?/gi, "")
+    .replace(new RegExp(`${condVerbs}\\s+(?:\\w+\\s+)?(?:the\\s+)?(?:${condNames})(?:\\s+conditions?)?`, "gi"), "")
+    .trim();
 
-    // Pattern D: "Increase Agility by 10"
-    const pD = seg.match(/(?:add|increase|boost|raise|grant|give)\s+([a-z\s]+?)\s+by\s+(\d+)/i);
-    // Pattern E: "Decrease Strength by 5"
-    const pE = seg.match(/(?:subtract|decrease|reduce|lower|remove|drain)\s+([a-z\s]+?)\s+by\s+(\d+)/i);
-    // Pattern A: "+10 Toughness" or "-5 WS"
-    const pA = seg.match(/([+-]?\s*\d+)\s+(?:to\s+)?([a-z\s]+?)(?:\s+(?:for|lasting|duration)|$)/i);
-    // Pattern B: "Add 20 to Weapon Skill"
-    const pB = seg.match(/(?:add|increase|boost|raise|grant|give)\s+(\d+)\s+(?:to\s+)?([a-z\s]+?)(?:\s+(?:for|lasting|duration)|$)/i);
-    // Pattern C: "Subtract 10 from Agility"
-    const pC = seg.match(/(?:subtract|decrease|reduce|lower|drain)\s+(\d+)\s+(?:from\s+|to\s+)?([a-z\s]+?)(?:\s+(?:for|lasting|duration)|$)/i);
+  const segments = charText.split(/\s*(?:,\s*and|,|and)\s*/).filter(s => s.trim());
 
-    let charName = null, value = null;
-    if (pD)      { charName = pD[1].trim(); value = parseInt(pD[2]); }
-    else if (pE) { charName = pE[1].trim(); value = -parseInt(pE[2]); }
-    else if (pA) { value = parseInt(pA[1].replace(/\s/g, "")); charName = pA[2].trim(); }
-    else if (pB) { value = parseInt(pB[1]); charName = pB[2].trim(); }
-    else if (pC) { value = -parseInt(pC[1]); charName = pC[2].trim(); }
+  // Check if this is a shared-modifier pattern: first segment has a number,
+  // remaining segments are bare characteristic names
+  let sharedValue = null;
+  let firstCharName = null;
 
-    if (charName && value !== null) {
-      if (charName.includes("movement") || charName.includes("wound")) continue;
+  if (segments.length > 1) {
+    const firstMatch = segments[0].match(/([+-]?\s*\d+)\s+(?:to\s+)?([a-z\s]+)/i);
+    if (firstMatch) {
+      const bareNames = segments.slice(1).every(s => {
+        const trimmed = s.trim();
+        return CHAR_MAP[trimmed] !== undefined && !trimmed.match(/\d/);
+      });
+      if (bareNames) {
+        sharedValue = parseInt(firstMatch[1].replace(/\s/g, ""));
+        firstCharName = firstMatch[2].trim();
+      }
+    }
+  }
+
+  if (sharedValue !== null && firstCharName) {
+    // Strategy A: shared modifier across multiple characteristics
+    const allNames = [firstCharName, ...segments.slice(1).map(s => s.trim())];
+    for (const charName of allNames) {
       const abbrev = CHAR_MAP[charName];
       if (!abbrev) continue;
+      _addCharChange(result, abbrev, sharedValue);
+    }
+  } else {
+    // Strategy B: parse each segment independently
+    for (const seg of segments) {
+      if (seg.match(/^(?:add|remove|apply|cure|clear|heal|restore|recover|regain|dispel|lift)\s/i)) continue;
 
-      const label = CHAR_LABELS[abbrev];
-      result.changes.push({
-        key: `system.characteristics.${abbrev}.modifier`,
-        mode: 2, value: String(value),
-        label: `${value >= 0 ? "+" : ""}${value} ${label}`,
-      });
+      // Pattern D: "Increase Agility by 10"
+      const pD = seg.match(/(?:add|increase|boost|raise|grant|give)\s+([a-z\s]+?)\s+by\s+(\w+)/i);
+      // Pattern E: "Decrease Strength by 5"
+      const pE = seg.match(/(?:subtract|decrease|reduce|lower|drain)\s+([a-z\s]+?)\s+by\s+(\w+)/i);
+      // Pattern A: "+10 Toughness" or "-5 WS"
+      const pA = seg.match(/([+-]?\s*\d+)\s+(?:to\s+)?([a-z\s]+?)$/i);
+      // Pattern B: "Add 20 to Weapon Skill"
+      const pB = seg.match(/(?:add|increase|boost|raise|grant|give)\s+(\w+)\s+(?:to\s+)?([a-z\s]+?)$/i);
+      // Pattern C: "Subtract 10 from Agility"
+      const pC = seg.match(/(?:subtract|decrease|reduce|lower|drain)\s+(\w+)\s+(?:from\s+|to\s+)?([a-z\s]+?)$/i);
 
-      // Derived offset for Wounds protection
-      if (DERIVED_CHARS.includes(abbrev)) {
-        const offset = Math.floor(Math.abs(value) / 10) * (value < 0 ? 1 : -1);
-        result.changes.push({
-          key: `system.characteristics.${abbrev}.calculationBonusModifier`,
-          mode: 2, value: String(offset),
-          label: `(${label} derived offset)`,
-        });
+      let charName = null, value = null;
+      if (pD)      { charName = pD[1].trim(); value = toNum(pD[2]); }
+      else if (pE) { charName = pE[1].trim(); const n = toNum(pE[2]); value = n ? -n : null; }
+      else if (pA) { value = parseInt(pA[1].replace(/\s/g, "")); charName = pA[2].trim(); }
+      else if (pB) { value = toNum(pB[1]); charName = pB[2].trim(); }
+      else if (pC) { const n = toNum(pC[1]); value = n ? -n : null; charName = pC[2].trim(); }
+
+      if (charName && value !== null) {
+        if (charName.includes("movement") || charName.includes("wound")) continue;
+        const abbrev = CHAR_MAP[charName];
+        if (!abbrev) continue;
+        _addCharChange(result, abbrev, value);
       }
     }
   }
@@ -172,6 +270,24 @@ function parseNaturalLanguage(input) {
   result.effectName = parts.join(", ") || "Consumable Effect";
 
   return result;
+}
+
+/** Helper: add a characteristic modifier change (with derived offset if needed) */
+function _addCharChange(result, abbrev, value) {
+  const label = CHAR_LABELS[abbrev];
+  result.changes.push({
+    key: `system.characteristics.${abbrev}.modifier`,
+    mode: 2, value: String(value),
+    label: `${value >= 0 ? "+" : ""}${value} ${label}`,
+  });
+  if (DERIVED_CHARS.includes(abbrev)) {
+    const offset = Math.floor(Math.abs(value) / 10) * (value < 0 ? 1 : -1);
+    result.changes.push({
+      key: `system.characteristics.${abbrev}.calculationBonusModifier`,
+      mode: 2, value: String(offset),
+      label: `(${label} derived offset)`,
+    });
+  }
 }
 
 
@@ -281,6 +397,21 @@ class ConsumableCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       return;
     }
 
+    // Build GM Notes: a summary of the natural language input and parsed effects
+    const gmNoteLines = [`<p><strong>Consumable Effect (auto-generated)</strong></p>`];
+    gmNoteLines.push(`<p><em>Original description:</em> ${f.effectDescription}</p>`);
+    gmNoteLines.push(`<hr/><p><strong>Parsed Effects:</strong></p><ul>`);
+    for (const c of p.changes) {
+      if (!c.label.startsWith("(")) gmNoteLines.push(`<li>${c.label}</li>`);
+    }
+    for (const c of p.conditions) {
+      gmNoteLines.push(`<li>${c.label}</li>`);
+    }
+    if (p.heal) gmNoteLines.push(`<li>Heal ${p.heal} Wounds</li>`);
+    gmNoteLines.push(`</ul>`);
+    if (p.duration) gmNoteLines.push(`<p><strong>Duration:</strong> ${p.duration} rounds</p>`);
+    const gmNotes = gmNoteLines.join("\n");
+
     const icon = this._getIcon(f.trappingType);
     const itemData = {
       name: f.itemName || "Consumable",
@@ -291,6 +422,7 @@ class ConsumableCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         description: { value: `<p>${f.itemDescription}</p>` },
         quantity: { value: parseInt(f.quantity) || 1 },
         encumbrance: { value: parseFloat(f.encumbrance) || 0 },
+        gpiNotes: { value: gmNotes },
       },
       flags: {
         [MODULE_ID]: {
