@@ -1,0 +1,43 @@
+{
+  "CONSUMABLE_EFFECTS": {
+    "title":              "Consumable Effects",
+    "createItem":         "Create Consumable",
+    "editEffect":         "Edit Effect",
+    "useItem":            "Use Item",
+
+    "itemName":           "Item Name",
+    "itemDescription":    "Description",
+    "quantity":           "Quantity",
+    "encumbrance":        "Encumbrance",
+    "trappingType":       "Trapping Type",
+    "foodAndDrink":       "Food & Drink",
+    "drugPoison":         "Drug/Poison",
+    "herbDraught":        "Herb/Draught",
+
+    "effectDescription":  "Describe the effect in plain language",
+    "effectPlaceholder":  "e.g. \"Add 10 to Toughness for 5 rounds\" or \"Heal 4 wounds\" or \"+20 Willpower and +10 Fellowship for 10 rounds\"",
+    "effectName":         "Effect Name",
+    "duration":           "Duration (rounds)",
+    "generate":           "Generate Effect",
+    "preview":            "Effect Preview",
+
+    "save":               "Save Item",
+    "cancel":             "Cancel",
+    "consume":            "Consume",
+
+    "noToken":            "You must select a token first.",
+    "noItem":             "Item not found in inventory.",
+    "noQuantity":         "You have none of this item remaining.",
+    "consumed":           "consumes",
+    "effectApplied":      "Effect applied:",
+    "healWounds":         "Heals {amount} wounds",
+    "parseError":         "Could not parse the effect description. Please try rephrasing.",
+
+    "settings": {
+      "showButton": {
+        "name":           "Show Header Button",
+        "hint":           "Show the 'Create Consumable' button in the Items Directory header."
+      }
+    }
+  }
+}
