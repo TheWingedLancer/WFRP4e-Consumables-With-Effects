@@ -70,6 +70,16 @@
         </ul>
       {{/if}}
 
+      {{#if parsed.removeAllConditions}}
+        <p class="ce-preview-condition"><i class="fas fa-broom"></i> Remove All Conditions</p>
+      {{/if}}
+
+      {{#if parsed.removeCritical}}
+        <p class="ce-preview-condition"><i class="fas fa-skull"></i>
+          {{#if (eq parsed.removeCritical "all")}}Remove All Critical Wounds{{else}}Remove {{parsed.removeCritical}} Critical Wound(s){{/if}}
+        </p>
+      {{/if}}
+
       {{#if parsed.heal}}
         <p class="ce-preview-heal"><i class="fas fa-heart"></i> Heal {{parsed.heal}} Wounds</p>
       {{/if}}
@@ -81,7 +91,11 @@
       {{#unless parsed.changes.length}}
         {{#unless parsed.heal}}
           {{#unless parsed.conditions.length}}
-            <p class="ce-parse-error"><i class="fas fa-exclamation-triangle"></i> Could not parse. Try rephrasing.</p>
+            {{#unless parsed.removeAllConditions}}
+              {{#unless parsed.removeCritical}}
+                <p class="ce-parse-error"><i class="fas fa-exclamation-triangle"></i> Could not parse. Try rephrasing.</p>
+              {{/unless}}
+            {{/unless}}
           {{/unless}}
         {{/unless}}
       {{/unless}}

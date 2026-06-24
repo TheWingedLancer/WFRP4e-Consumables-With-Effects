@@ -64,6 +64,11 @@
   font-weight: bold;
 }
 
+.wfrp4e-consumables-with-effects .ce-preview-condition {
+  color: var(--color-level-warning, #b56e20);
+  font-weight: bold;
+}
+
 .wfrp4e-consumables-with-effects .ce-preview-duration {
   margin-top: 0.25rem;
   padding-top: 0.25rem;

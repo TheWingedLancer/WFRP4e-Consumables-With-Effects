@@ -95,11 +95,13 @@ function toNum(str) {
 
 function parseNaturalLanguage(input) {
   const result = {
-    changes: [],        // { key, mode, value, label } for ActiveEffect.changes
-    conditions: [],     // { name, action:"add"|"remove", count } for WFRP4e conditions
-    duration: null,     // rounds (integer) or null
-    heal: null,         // wounds to restore (integer) or null
-    effectName: "",     // auto-generated label
+    changes: [],            // { key, mode, value, label } for ActiveEffect.changes
+    conditions: [],         // { name, action:"add"|"remove", count } for WFRP4e conditions
+    removeAllConditions: false, // "remove all conditions"
+    removeCritical: null,   // null | "all" | number — critical wounds to remove
+    duration: null,         // rounds (integer) or null
+    heal: null,             // wounds to restore (integer) or null
+    effectName: "",         // auto-generated label
   };
 
   const text = input.toLowerCase().trim();
@@ -123,10 +125,42 @@ function parseNaturalLanguage(input) {
 
   // ---- Healing ----
   // "heal 4 wounds", "restore two wounds", "recover one wound"
-  const healMatch = text.match(/(?:heal|restore|recover|regain)\s+(\w+)\s*wounds?/i);
-  if (healMatch) {
-    const n = toNum(healMatch[1]);
-    if (n) result.heal = n;
+  // Use a global match and require a numeric quantity so phrases like
+  // "heal critical wounds" don't consume the heal verb (critical is handled separately).
+  const healRegex = /(?:heal|restore|recover|regain)\s+(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s*wounds?/gi;
+  let healM;
+  while ((healM = healRegex.exec(text)) !== null) {
+    // Skip if this is actually "...critical wounds" (the word before "wounds" is "critical")
+    const n = toNum(healM[1]);
+    if (n) { result.heal = n; break; }
+  }
+
+  // ---- Critical Wounds ----
+  // "remove all critical wounds", "remove critical wounds", "heal critical wounds",
+  // "remove 2 critical wounds", and shared-verb forms like
+  // "remove all conditions and critical wounds" (verb applies to both).
+  //
+  // Strategy: if "critical wounds" appears AND there's a remove/heal verb anywhere
+  // in the text, treat it as removal. Count defaults to "all" unless a number
+  // directly precedes "critical wounds".
+  if (/critical\s+wounds?/i.test(text)) {
+    const hasRemoveVerb = /(?:remove|cure|clear|heal|restore|recover|eliminate|mend|fix|dispel)/i.test(text);
+    if (hasRemoveVerb) {
+      const directCount = text.match(/(all\s+|every\s+|\d+\s+|one\s+|two\s+|three\s+|four\s+|five\s+)critical\s+wounds?/i);
+      if (directCount) {
+        const q = directCount[1].trim();
+        result.removeCritical = (q === "all" || q === "every") ? "all" : (toNum(q) || "all");
+      } else {
+        result.removeCritical = "all"; // default: remove all critical wounds
+      }
+    }
+  }
+
+  // ---- Remove ALL Conditions ----
+  // "remove all conditions", "clear all conditions", "cure all conditions",
+  // "remove every condition"
+  if (text.match(/(?:remove|cure|clear|dispel|lift)\s+(?:all|every)\s+conditions?\b/i)) {
+    result.removeAllConditions = true;
   }
 
   // ---- Conditions ----
@@ -137,7 +171,7 @@ function parseNaturalLanguage(input) {
   //   "remove the fatigued condition"   → remove 1 fatigued
   //   "remove one fatigued"             → remove 1 fatigued
   //   "cure blinded"                    → remove 1 blinded
-  //   "remove all fatigued"             → remove 99 fatigued (clear all)
+  //   "remove all fatigued"             → remove 99 fatigued (clear all of one type)
   //
   // Strategy: scan for verb + optional count/article + condition_name + optional "condition(s)"
   const condVerbs = "(?:add|apply|inflict|give|cause|remove|cure|clear|dispel|lift)";
@@ -307,6 +341,9 @@ function parseNaturalLanguage(input) {
   const parts = [];
   for (const c of result.changes) { if (!c.label.startsWith("(")) parts.push(c.label); }
   for (const c of result.conditions) parts.push(c.label);
+  if (result.removeAllConditions) parts.push("Remove All Conditions");
+  if (result.removeCritical === "all") parts.push("Remove All Critical Wounds");
+  else if (result.removeCritical) parts.push(`Remove ${result.removeCritical} Critical Wound${result.removeCritical > 1 ? "s" : ""}`);
   if (result.heal) parts.push(`Heal ${result.heal} Wounds`);
   result.effectName = parts.join(", ") || "Consumable Effect";
 
@@ -433,7 +470,8 @@ class ConsumableCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   async _createItem() {
     const f = this._formState;
     const p = this._parsedEffect;
-    if (!p || (p.changes.length === 0 && !p.heal && p.conditions.length === 0)) {
+    if (!p || (p.changes.length === 0 && !p.heal && p.conditions.length === 0
+               && !p.removeAllConditions && !p.removeCritical)) {
       ui.notifications.warn(game.i18n.localize("CONSUMABLE_EFFECTS.parseError"));
       return;
     }
@@ -448,6 +486,9 @@ class ConsumableCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     for (const c of p.conditions) {
       gmNoteLines.push(`<li>${c.label}</li>`);
     }
+    if (p.removeAllConditions) gmNoteLines.push(`<li>Remove All Conditions</li>`);
+    if (p.removeCritical === "all") gmNoteLines.push(`<li>Remove All Critical Wounds</li>`);
+    else if (p.removeCritical) gmNoteLines.push(`<li>Remove ${p.removeCritical} Critical Wound(s)</li>`);
     if (p.heal) gmNoteLines.push(`<li>Heal ${p.heal} Wounds</li>`);
     gmNoteLines.push(`</ul>`);
     if (p.duration) gmNoteLines.push(`<p><strong>Duration:</strong> ${p.duration} rounds</p>`);
@@ -470,6 +511,8 @@ class ConsumableCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           isConsumable: true,
           healAmount: p.heal,
           conditions: p.conditions,
+          removeAllConditions: p.removeAllConditions,
+          removeCritical: p.removeCritical,
           effectName: p.effectName,
           naturalLanguage: f.effectDescription,
         },
@@ -483,7 +526,7 @@ class ConsumableCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const changes = p.changes.map(c => ({ key: c.key, mode: c.mode, value: c.value }));
       const effectData = {
         name: p.effectName,
-        icon,
+        img: icon,  // V14: ActiveEffect#icon removed, use #img
         changes,
         transfer: false,
         flags: {
@@ -563,6 +606,61 @@ async function consumeItem(actor, item) {
     }
   }
 
+  // ---- 2b. Remove ALL Conditions ----
+  if (flags.removeAllConditions) {
+    try {
+      // WFRP4e stores conditions as ActiveEffects with a statuses array.
+      // Iterate the actor's effects and remove any that are conditions.
+      const condEffects = actor.effects.filter(e =>
+        e.statuses?.size > 0 || CONDITIONS.includes(e.name?.toLowerCase())
+      );
+      for (const e of condEffects) {
+        try { await e.delete(); } catch { /* skip */ }
+      }
+      // Belt-and-braces: also call removeCondition for each known condition
+      for (const condName of CONDITIONS) {
+        try { await actor.removeCondition(condName); } catch { /* not present */ }
+      }
+      conditionMessages.push("Removed all conditions");
+    } catch (e) {
+      console.warn(`${MODULE_ID} | Failed to remove all conditions:`, e);
+    }
+  }
+
+  // ---- 2c. Remove Critical Wounds ----
+  let criticalMsg = "";
+  if (flags.removeCritical) {
+    try {
+      // WFRP4e defines both "critical" (critical wounds from combat) and
+      // "injury" (lingering injuries) as distinct item types. "Remove critical
+      // wounds" targets the "critical" type specifically.
+      const critItems = actor.items.filter(i => i.type === "critical");
+
+      if (critItems.length > 0) {
+        // Items-based: delete the critical wound items
+        const toRemove = flags.removeCritical === "all"
+          ? critItems.length
+          : Math.min(flags.removeCritical, critItems.length);
+        const idsToDelete = critItems.slice(0, toRemove).map(i => i.id);
+        await actor.deleteEmbeddedDocuments("Item", idsToDelete);
+        criticalMsg = `Removed ${idsToDelete.length} critical wound${idsToDelete.length > 1 ? "s" : ""}`;
+      } else {
+        // Counter-based fallback: decrement system.status.criticalWounds.value
+        const cw = actor.system.status?.criticalWounds;
+        if (cw && cw.value > 0) {
+          const reduceBy = flags.removeCritical === "all" ? cw.value : Math.min(flags.removeCritical, cw.value);
+          const newVal = Math.max(0, cw.value - reduceBy);
+          await actor.update({ "system.status.criticalWounds.value": newVal });
+          criticalMsg = `Removed ${cw.value - newVal} critical wound${(cw.value - newVal) > 1 ? "s" : ""}`;
+        } else {
+          criticalMsg = "No critical wounds to remove";
+        }
+      }
+    } catch (e) {
+      console.warn(`${MODULE_ID} | Failed to remove critical wounds:`, e);
+    }
+  }
+
   // ---- 3. Healing ----
   let healMsg = "";
   if (flags.healAmount) {
@@ -590,6 +688,9 @@ async function consumeItem(actor, item) {
   }
   for (const cm of conditionMessages) {
     content += `<p class="ce-chat-condition">${cm}</p>`;
+  }
+  if (criticalMsg) {
+    content += `<p class="ce-chat-condition">${criticalMsg}</p>`;
   }
   if (healMsg) {
     content += `<p class="ce-chat-heal">${healMsg}</p>`;
