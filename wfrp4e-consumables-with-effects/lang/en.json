@@ -1,0 +1,37 @@
+{
+  "CONSUMABLE_EFFECTS": {
+    "title":              "Consumables With Effects",
+    "createItem":         "Create Consumable",
+    "itemName":           "Item Name",
+    "itemDescription":    "Description",
+    "quantity":           "Quantity",
+    "encumbrance":        "Encumbrance",
+    "trappingType":       "Trapping Type",
+    "foodAndDrink":       "Food & Drink",
+    "drugPoison":         "Drug/Poison",
+    "herbDraught":        "Herb/Draught",
+    "effectDescription":  "Describe the effect in plain language",
+    "effectPlaceholder":  "e.g. \"+10 Toughness and remove fatigued for 5 rounds\" or \"Heal 4 wounds and add 1 stunned\"",
+    "generate":           "Generate Effect",
+    "preview":            "Effect Preview",
+    "previewEmpty":       "Describe an effect above and click Generate to preview it.",
+    "save":               "Save Item",
+    "cancel":             "Cancel",
+    "consume":            "Consume",
+    "noToken":            "You must select a token first.",
+    "noItem":             "Item not found in inventory.",
+    "noQuantity":         "No servings remaining.",
+    "consumed":           "consumes",
+    "effectApplied":      "Effect applied:",
+    "healWounds":         "Heals {amount} wounds",
+    "conditionAdded":     "Added condition: {name}",
+    "conditionRemoved":   "Removed condition: {name}",
+    "parseError":         "Could not parse the effect description. Try rephrasing.",
+    "settings": {
+      "showButton": {
+        "name":           "Show Sidebar Button",
+        "hint":           "Show the 'Create Consumable' button in the Items Directory header."
+      }
+    }
+  }
+}
